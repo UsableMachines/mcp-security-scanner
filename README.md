@@ -287,6 +287,151 @@ The scanner focuses on these MCP security patterns:
 
 When adding new analysis capabilities, focus on these MCP-specific attack vectors.
 
+## Security Analysis Deep Dive
+
+### Dual-Layer Vulnerability Detection
+
+The scanner employs a sophisticated two-tier analysis approach that combines traditional dependency scanning with AI-powered source code analysis:
+
+#### Layer 1: OSV Scanner (Dependency Analysis)
+**What it does:**
+- Queries the OSV.dev vulnerability database for known CVEs in dependencies
+- Scans `package.json`, `package-lock.json`, and other dependency manifests
+- Provides CVSS scores and severity ratings for identified vulnerabilities
+- Covers transitive dependencies through lockfile analysis
+
+**Execution method:**
+```bash
+# Runs in sandboxed Docker container
+osv-scanner --recursive /src --format json
+```
+
+**Limitations:**
+- Only detects **known vulnerabilities** in published packages
+- Cannot analyze custom application code or business logic
+- Misses zero-day vulnerabilities or application-specific security flaws
+- No understanding of how dependencies are actually used in context
+
+#### Layer 2: AI-Powered Source Code Analysis (Anthropic Claude Sonnet 4)
+**What it does:**
+- Performs deep source code analysis using tool calling to interact with the cloned repository
+- Understands MCP-specific security patterns and attack vectors
+- Analyzes custom application logic, API designs, and data flow patterns
+- Provides contextual security assessments with actionable recommendations
+
+### AI Analysis Tool Calling Architecture
+
+The AI analysis uses an advanced tool calling system that gives Claude Sonnet 4 direct access to the cloned repository:
+
+#### Available Tools for AI Analysis
+
+**1. `list_directory` Tool**
+```typescript
+// Executes: docker run --rm -v ${volumeName}:/src alpine:latest ls -la /src/{path}
+await ai.useTool('list_directory', { path: 'src/tools' });
+```
+- Explores repository structure systematically
+- Identifies key directories (src/, lib/, config/, etc.)
+- Discovers configuration files and entry points
+
+**2. `read_file` Tool**
+```typescript
+// Executes: docker run --rm -v ${volumeName}:/src alpine:latest cat /src/{path}
+await ai.useTool('read_file', { path: 'src/index.ts' });
+```
+- Reads complete source files for analysis
+- Examines configuration files, package manifests
+- Analyzes implementation details and code patterns
+
+**3. `search_files` Tool**
+```typescript
+// Executes: docker run --rm -v ${volumeName}:/src alpine:latest sh -c "find /src -name '*.js' -type f -exec grep -l 'pattern' {} \;"
+await ai.useTool('search_files', {
+  pattern: 'allowUnknownOption',
+  file_pattern: '*.js'
+});
+```
+- Searches for specific vulnerability patterns across the codebase
+- Locates security-relevant code constructs
+- Identifies potential attack vectors and injection points
+
+### Real-World Analysis Example
+
+When analyzing the Context7 repository, the AI systematically:
+
+1. **Repository Exploration**: Used `list_directory` to map the project structure
+2. **Key File Analysis**: Read `package.json`, main source files, and configuration files using `read_file`
+3. **Pattern Detection**: Searched for security-sensitive patterns like:
+   - Command line argument processing
+   - Header-based authentication
+   - External API calls with user input
+   - Input validation patterns
+
+4. **Contextual Assessment**: Connected these patterns to understand data flow:
+   ```
+   User Input → CLI Arguments → allowUnknownOption() → Potential Command Injection
+   HTTP Headers → Multiple extraction methods → Authentication Bypass Risk
+   User libraryName → External API calls → SSRF Vulnerability
+   ```
+
+### Vulnerability Detection Capabilities
+
+#### What OSV Scanner Finds:
+- **Known CVEs**: Published vulnerabilities in npm packages
+- **Dependency issues**: Outdated packages with security patches
+- **Supply chain risks**: Compromised or malicious packages
+
+#### What AI Analysis Finds:
+- **Logic flaws**: Business logic vulnerabilities specific to the application
+- **Design issues**: Authentication bypasses, privilege escalation paths
+- **Input validation gaps**: Missing sanitization, injection vulnerabilities
+- **MCP-specific risks**: Tool poisoning, prompt injection, confused deputy attacks
+- **API security issues**: SSRF, parameter tampering, rate limiting gaps
+
+### Integration and Combined Results
+
+The scanner merges both analysis results to provide comprehensive coverage:
+
+```typescript
+// Final result combines both layers
+const result = {
+  dependencyAnalysis: {
+    totalVulnerabilities: osvResults.vulnerabilities.length,
+    severityBreakdown: { critical: 0, high: 0, medium: 2, low: 1 }
+  },
+  sourceCodeAnalysis: {
+    vulnerabilities: [
+      {
+        type: 'COMMAND_INJECTION',
+        severity: 'HIGH',
+        line: 45,
+        code: '.allowUnknownOption()',
+        description: 'CLI arguments passed without validation...'
+      }
+      // ... more AI-detected vulnerabilities
+    ]
+  }
+}
+```
+
+### Why This Approach is Effective
+
+**Complementary Coverage:**
+- OSV handles the "known knowns" (published CVEs)
+- AI handles the "unknown unknowns" (novel application-specific flaws)
+
+**Contextual Intelligence:**
+- Traditional scanners use pattern matching
+- AI understands semantic meaning and data flow
+- Can assess real-world exploitability vs theoretical vulnerabilities
+
+**MCP-Aware Analysis:**
+- Generic tools miss MCP-specific attack patterns
+- AI is trained to recognize tool poisoning, prompt injection, and confused deputy attacks
+- Understands the unique threat model of MCP servers in LLM applications
+
+This dual-layer approach provides both **broad coverage** (dependency scanning) and **deep analysis** (AI-powered source code review), making it significantly more effective than either approach alone.
+
 ## Architecture Decisions
 
 ### Why Multiple AI Providers?
