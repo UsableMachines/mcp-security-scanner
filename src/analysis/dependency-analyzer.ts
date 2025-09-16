@@ -119,8 +119,13 @@ export class DependencyAnalyzer {
         dependencies
       };
     } catch (error) {
+      // Clean up volume on error
+      if (typeof (sandboxProvider as any).cleanupCurrentVolume === 'function') {
+        await (sandboxProvider as any).cleanupCurrentVolume();
+      }
       throw new Error(`Failed to parse project metadata: ${error instanceof Error ? error.message : String(error)}`);
     }
+    // Don't cleanup here - let source code analysis use the volume first
 
     // Step 4: Convert OSV scan results to our vulnerability report format
     const vulnerabilityReport = this.convertOSVResultsToReport(osvScanResult);

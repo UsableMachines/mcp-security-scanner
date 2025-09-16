@@ -1,10 +1,19 @@
 /**
  * Abstracted AI service router for seamless switching between external API and internal platform
  */
+import { generateText } from 'ai';
+import { createAnthropic } from '@ai-sdk/anthropic';
 
 export interface AIMessage {
   role: 'system' | 'user' | 'assistant';
   content: string;
+}
+
+export interface AITool {
+  name: string;
+  description: string;
+  parameters: Record<string, any>; // JSON Schema
+  handler?: (params: any) => Promise<any>; // Optional handler for execution
 }
 
 export interface AICompletionOptions {
@@ -12,6 +21,16 @@ export interface AICompletionOptions {
   temperature?: number;
   stream?: boolean;
   model?: string;
+  tools?: AITool[];
+  toolChoice?: 'auto' | 'none' | { type: 'tool'; name: string };
+  provider?: 'kindo' | 'anthropic'; // Explicit provider selection
+}
+
+export interface AIToolCall {
+  id: string;
+  name: string;
+  arguments: Record<string, any>;
+  result?: any; // Result after execution
 }
 
 export interface AIResponse {
@@ -22,6 +41,8 @@ export interface AIResponse {
     totalTokens: number;
   };
   model?: string;
+  toolCalls?: AIToolCall[];
+  finishReason?: 'stop' | 'length' | 'tool_calls' | 'content_filter';
 }
 
 export abstract class AIProvider {
@@ -109,7 +130,7 @@ export class ExternalKindoProvider extends AIProvider {
         model: options.model || this.config.model,
         messages,
         max_tokens: options.maxTokens || 4000,
-        temperature: options.temperature || 0.7,
+        temperature: options.temperature || 0.6,
         stream: options.stream || false
       })
     });
@@ -128,7 +149,67 @@ export class ExternalKindoProvider extends AIProvider {
         completionTokens: data.usage.completion_tokens || 0,
         totalTokens: data.usage.total_tokens || 0
       } : undefined,
-      model: data.model
+      model: data.model,
+      finishReason: data.choices[0].finish_reason
+    };
+  }
+}
+
+/**
+ * Anthropic provider using AI SDK for streaming and tool calling support
+ */
+export class AnthropicProvider extends AIProvider {
+  name = 'anthropic';
+  private anthropic: any;
+
+  async initialize(config: { apiKey?: string } = {}): Promise<void> {
+    // Use provided API key or fall back to environment variable
+    const apiKey = config.apiKey || process.env?.ANTHROPIC_API_KEY || '';
+
+    if (!apiKey) {
+      throw new Error('Anthropic API key is required (ANTHROPIC_API_KEY environment variable or config)');
+    }
+
+    // Create Anthropic provider with API key
+    this.anthropic = createAnthropic({
+      apiKey: apiKey
+    });
+  }
+
+  async isAvailable(): Promise<boolean> {
+    try {
+      // Test API connectivity with a minimal request using Sonnet 4
+      const { text } = await generateText({
+        model: this.anthropic('claude-sonnet-4-20250514'),
+        prompt: 'test'
+      });
+      return !!text;
+    } catch {
+      return false;
+    }
+  }
+
+  async createCompletion(
+    messages: AIMessage[],
+    options: AICompletionOptions = {}
+  ): Promise<AIResponse> {
+    const result = await generateText({
+      model: this.anthropic(options.model || 'claude-sonnet-4-20250514'),
+      messages,
+      temperature: options.temperature || 0.6
+    });
+
+    return {
+      content: result.text,
+      usage: result.usage ? {
+        promptTokens: (result.usage as any).promptTokens || 0,
+        completionTokens: (result.usage as any).completionTokens || 0,
+        totalTokens: result.usage.totalTokens || 0
+      } : undefined,
+      finishReason: result.finishReason === 'stop' ? 'stop' :
+                    result.finishReason === 'length' ? 'length' :
+                    result.finishReason === 'tool-calls' ? 'tool_calls' :
+                    result.finishReason === 'content-filter' ? 'content_filter' : 'stop'
     };
   }
 }
@@ -163,7 +244,7 @@ export class InternalKindoProvider extends AIProvider {
     const result = await this.platformService.createCompletion({
       messages,
       maxTokens: options.maxTokens || 4000,
-      temperature: options.temperature || 0.7,
+      temperature: options.temperature || 0.6,
       model: options.model || 'default'
     });
 
@@ -183,25 +264,27 @@ export class AIRouter {
   private providers: Map<string, AIProvider> = new Map();
   private activeProvider: AIProvider | null = null;
   private config: {
-    preferredProvider?: 'external-kindo' | 'internal-kindo';
+    preferredProvider?: 'external-kindo' | 'internal-kindo' | 'anthropic';
   };
 
   constructor(config: {
-    preferredProvider?: 'external-kindo' | 'internal-kindo';
+    preferredProvider?: 'external-kindo' | 'internal-kindo' | 'anthropic';
   } = {}) {
     this.config = {
-      preferredProvider: 'external-kindo',
+      preferredProvider: 'anthropic',
       ...config
     };
 
     // Register available providers
     this.providers.set('external-kindo', new ExternalKindoProvider());
     this.providers.set('internal-kindo', new InternalKindoProvider());
+    this.providers.set('anthropic', new AnthropicProvider());
   }
 
   async initialize(providerConfigs: {
     'external-kindo'?: { apiKey: string; baseUrl?: string; model?: string };
     'internal-kindo'?: { platformService?: any; defaultModel?: string };
+    'anthropic'?: { apiKey?: string };
   }): Promise<void> {
     // Initialize all configured providers
     for (const [providerName, config] of Object.entries(providerConfigs)) {
@@ -226,9 +309,14 @@ export class AIRouter {
   }
 
   async createCompletion(
-    messages: AIMessage[], 
+    messages: AIMessage[],
     options: AICompletionOptions = {}
   ): Promise<AIResponse> {
+    // Use explicit provider if specified in options
+    if (options.provider) {
+      return await this.createCompletionWithProvider(options.provider, messages, options);
+    }
+
     if (!this.activeProvider) {
       throw new Error('AI Router not initialized');
     }
@@ -238,6 +326,32 @@ export class AIRouter {
     } catch (error) {
       console.error(`AI completion failed with ${this.activeProvider.name}:`, error);
       throw error; // Fail fast - no fallbacks
+    }
+  }
+
+  /**
+   * Create completion using a specific provider (programmatic provider selection)
+   */
+  async createCompletionWithProvider(
+    providerName: 'kindo' | 'anthropic',
+    messages: AIMessage[],
+    options: Omit<AICompletionOptions, 'provider'> = {}
+  ): Promise<AIResponse> {
+    const provider = this.providers.get(providerName === 'kindo' ? 'external-kindo' : providerName);
+
+    if (!provider) {
+      throw new Error(`Provider '${providerName}' not found`);
+    }
+
+    if (!(await provider.isAvailable())) {
+      throw new Error(`Provider '${providerName}' not available`);
+    }
+
+    try {
+      return await provider.createCompletion(messages, options);
+    } catch (error) {
+      console.error(`AI completion failed with ${providerName}:`, error);
+      throw error;
     }
   }
 
@@ -304,7 +418,7 @@ export class AIRouter {
       { role: 'system', content: systemPrompt },
       { role: 'user', content: `${analysisData}\n\nReturn JSON matching schema: ${JSON.stringify(schema)}` }
     ], {
-      temperature: 0.3,
+      temperature: 0.6,
       maxTokens: 6000
     });
 
@@ -326,7 +440,7 @@ Create a professional markdown report suitable for technical review.`;
     const response = await this.createCompletion([
       { role: 'user', content: prompt }
     ], {
-      temperature: 0.5,
+      temperature: 0.6,
       maxTokens: 8000
     });
 

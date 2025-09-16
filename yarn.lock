@@ -5,6 +5,18 @@ __metadata:
   version: 8
   cacheKey: 10c0
 
+"@ai-sdk/anthropic@npm:^2.0.17":
+  version: 2.0.17
+  resolution: "@ai-sdk/anthropic@npm:2.0.17"
+  dependencies:
+    "@ai-sdk/provider": "npm:2.0.0"
+    "@ai-sdk/provider-utils": "npm:3.0.9"
+  peerDependencies:
+    zod: ^3.25.76 || ^4
+  checksum: 10c0/783b6a953f3854c4303ad7c30dd56d4706486c7d1151adb17071d87933418c59c26bce53d5c26d34c4d4728eaac4a856ce49a336caed26a7216f982fea562814
+  languageName: node
+  linkType: hard
+
 "@ai-sdk/gateway@npm:1.0.23":
   version: 1.0.23
   resolution: "@ai-sdk/gateway@npm:1.0.23"
@@ -3471,6 +3483,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "mcp_sec@workspace:."
   dependencies:
+    "@ai-sdk/anthropic": "npm:^2.0.17"
     "@ai-sdk/openai": "npm:^2.0.30"
     "@types/jest": "npm:^30.0.0"
     "@types/node": "npm:^24.5.0"

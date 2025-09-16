@@ -142,20 +142,46 @@ Examples:
       const code = result.sourceCodeAnalysis;
       console.log(`\n💻 SOURCE CODE ANALYSIS:`);
       console.log(`   Code Vulnerabilities: ${code.vulnerabilities.length}`);
+
+      if (code.vulnerabilities.length > 0) {
+        console.log(`\n🔍 CODE VULNERABILITIES FOUND:`);
+        code.vulnerabilities.forEach((vuln, i) => {
+          console.log(`   ${i + 1}. ${vuln.type.toUpperCase()} (${vuln.severity.toUpperCase()})`);
+          console.log(`      ${vuln.description}`);
+          if (vuln.line && vuln.line > 0) {
+            console.log(`      Line: ${vuln.line}`);
+          }
+          if (vuln.code && vuln.code.trim()) {
+            console.log(`      Code: ${vuln.code.trim()}`);
+          }
+        });
+      }
+
+      if (code.suggestions.length > 0) {
+        console.log(`\n💡 SOURCE CODE SUGGESTIONS:`);
+        code.suggestions.forEach((suggestion, i) => {
+          console.log(`   ${i + 1}. ${suggestion}`);
+        });
+      }
     }
 
-    console.log(`\n🔬 BEHAVIORAL ANALYSIS:`);
-    console.log(`   Security Risks:   ${result.behavioralAnalysis.risks.length}`);
-    console.log(`   MCP Tools:        ${result.behavioralAnalysis.mcpCapabilities.tools.length}`);
-    console.log(`   MCP Resources:    ${result.behavioralAnalysis.mcpCapabilities.resources.length}`);
+    if (result.behavioralAnalysis) {
+      console.log(`\n🔬 BEHAVIORAL ANALYSIS:`);
+      console.log(`   Security Risks:   ${result.behavioralAnalysis.risks.length}`);
+      console.log(`   MCP Tools:        ${result.behavioralAnalysis.mcpCapabilities.tools.length}`);
+      console.log(`   MCP Resources:    ${result.behavioralAnalysis.mcpCapabilities.resources.length}`);
 
-    if (result.behavioralAnalysis.risks.length > 0) {
-      console.log(`\n⚠️  SECURITY RISKS IDENTIFIED:`);
-      result.behavioralAnalysis.risks.forEach((risk, i) => {
-        console.log(`   ${i + 1}. ${risk.type.toUpperCase()} (${risk.severity.toUpperCase()})`);
-        console.log(`      ${risk.description}`);
-        console.log(`      Confidence: ${Math.round(risk.confidence * 100)}%`);
-      });
+      if (result.behavioralAnalysis.risks.length > 0) {
+        console.log(`\n⚠️  SECURITY RISKS IDENTIFIED:`);
+        result.behavioralAnalysis.risks.forEach((risk, i) => {
+          console.log(`   ${i + 1}. ${risk.type.toUpperCase()} (${risk.severity.toUpperCase()})`);
+          console.log(`      ${risk.description}`);
+          console.log(`      Confidence: ${Math.round(risk.confidence * 100)}%`);
+        });
+      }
+    } else {
+      console.log(`\n🔬 BEHAVIORAL ANALYSIS:`);
+      console.log(`   ⚠️  Skipped (static-only analysis mode)`);
     }
 
     console.log(`\n📝 SUMMARY:`);

@@ -4,6 +4,9 @@
  */
 
 import { z } from 'zod';
+import { promisify } from 'util';
+import { exec } from 'child_process';
+import * as fs from 'fs';
 import { configManager } from './config';
 import { SandboxManager } from './sandbox/sandbox-manager';
 import { AIAnalyzer, type SecurityAnalysis } from './analysis/ai-analyzer';
@@ -38,8 +41,8 @@ export interface ComprehensiveScanResult {
     suggestions: string[];
   };
 
-  // Dynamic analysis results (always performed)
-  behavioralAnalysis: SecurityAnalysis;
+  // Dynamic analysis results (when MCP server is available)
+  behavioralAnalysis?: SecurityAnalysis;
 
   // Combined assessment
   overallRisk: 'critical' | 'high' | 'medium' | 'low';
@@ -109,18 +112,23 @@ export class MCPSecurityScanner {
       }
     }
 
-    // Dynamic Analysis (always performed)
-    let behavioralAnalysis: SecurityAnalysis;
+    // Dynamic Analysis (when MCP server is available)
+    let behavioralAnalysis: SecurityAnalysis | undefined;
     if (!options.skipBehavioralAnalysis) {
       console.log('Performing behavioral analysis in sandbox...');
       try {
         behavioralAnalysis = await this.performBehavioralAnalysis(mcpServerPath, options);
         console.log(`Behavioral analysis complete: ${behavioralAnalysis.risks.length} security risks identified`);
       } catch (error) {
-        throw new Error(`Behavioral analysis failed: ${error}`);
+        // For static-only mode or when MCP server is not available, allow the scan to continue
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        if (mcpServerPath === 'static-analysis-only' || errorMessage.includes('Static-only analysis mode')) {
+          console.log('⚠️  Behavioral analysis skipped: Static-only analysis mode');
+          behavioralAnalysis = undefined;
+        } else {
+          throw new Error(`Behavioral analysis failed: ${error}`);
+        }
       }
-    } else {
-      throw new Error('Cannot skip behavioral analysis - it is required for comprehensive security assessment');
     }
 
     // Combine results and generate comprehensive assessment
@@ -180,15 +188,218 @@ export class MCPSecurityScanner {
   }
 
   private async performSourceCodeAnalysis(sourceCodeUrl: string): Promise<ComprehensiveScanResult['sourceCodeAnalysis']> {
-    // For now, we expect the user to provide a local path or we clone the repo
-    // This is a placeholder - in a real implementation, we'd clone the repo and analyze source
-    throw new Error('Source code analysis from remote URLs not yet implemented - provide local project path');
+    // Check if it's a local path or remote URL
+    if (sourceCodeUrl.startsWith('http://') || sourceCodeUrl.startsWith('https://')) {
+      // Remote repository - use Anthropic AI with tool calling to analyze the preserved Docker volume
+      return await this.performRemoteSourceCodeAnalysis();
+    } else {
+      // Local path analysis - placeholder for now
+      throw new Error('Local source code analysis not yet implemented');
+    }
+  }
+
+  private async performRemoteSourceCodeAnalysis(): Promise<ComprehensiveScanResult['sourceCodeAnalysis']> {
+    const sandboxProvider = await this.sandboxManager.getProvider();
+    if (!sandboxProvider) {
+      throw new Error('No sandbox provider available for source code analysis');
+    }
+
+    // Get the volume that was used for dependency analysis
+    const volumeName = (sandboxProvider as any)._currentVolume;
+    if (!volumeName) {
+      throw new Error('No Docker volume available for source code analysis - dependency analysis must run first');
+    }
+
+    try {
+      // Use Anthropic AI to intelligently analyze the repository
+      const response = await this.aiAnalyzer.createCompletionWithProvider('anthropic', [
+        {
+          role: 'system',
+          content: `You are an expert MCP (Model Context Protocol) security analyzer. Your task is to analyze a cloned repository for security vulnerabilities specific to MCP servers.
+
+Focus on these MCP-specific security issues:
+- Command injection in tool implementations
+- Hardcoded credentials/secrets in configurations
+- Authentication bypass vulnerabilities
+- Privilege escalation patterns
+- Data exfiltration risks
+- Tool poisoning via malicious descriptions
+- Prompt injection vulnerabilities
+- Confused deputy attacks
+
+The repository is available in a Docker volume named "${volumeName}" mounted at /src.
+
+You have access to tools that can:
+1. List directory contents
+2. Read file contents
+3. Search for patterns across files
+4. Analyze package.json dependencies
+
+Analyze the repository systematically and provide specific findings with file paths and line numbers.`
+        },
+        {
+          role: 'user',
+          content: 'Please analyze this MCP repository for security vulnerabilities. Start by exploring the structure and then dive into the code.'
+        }
+      ], {
+        tools: [
+          {
+            name: 'list_directory',
+            description: 'List contents of a directory in the repository',
+            parameters: {
+              type: 'object',
+              properties: {
+                path: {
+                  type: 'string',
+                  description: 'Directory path relative to /src (e.g., "." for root, "src/tools" for subdirectory)'
+                }
+              },
+              required: ['path']
+            },
+            handler: async ({ path }: { path: string }) => {
+              const { exec } = require('child_process');
+              const { promisify } = require('util');
+              const execAsync = promisify(exec);
+
+              try {
+                const { stdout } = await execAsync(
+                  `docker run --rm -v ${volumeName}:/src alpine:latest ls -la /src/${path}`
+                );
+                return { success: true, contents: stdout };
+              } catch (error) {
+                return { success: false, error: error instanceof Error ? error.message : String(error) };
+              }
+            }
+          },
+          {
+            name: 'read_file',
+            description: 'Read the contents of a file in the repository',
+            parameters: {
+              type: 'object',
+              properties: {
+                path: {
+                  type: 'string',
+                  description: 'File path relative to /src (e.g., "package.json", "src/index.ts")'
+                }
+              },
+              required: ['path']
+            },
+            handler: async ({ path }: { path: string }) => {
+              const { exec } = require('child_process');
+              const { promisify } = require('util');
+              const execAsync = promisify(exec);
+
+              try {
+                const { stdout } = await execAsync(
+                  `docker run --rm -v ${volumeName}:/src alpine:latest cat /src/${path}`
+                );
+                return { success: true, contents: stdout };
+              } catch (error) {
+                return { success: false, error: error instanceof Error ? error.message : String(error) };
+              }
+            }
+          },
+          {
+            name: 'search_files',
+            description: 'Search for patterns across files in the repository',
+            parameters: {
+              type: 'object',
+              properties: {
+                pattern: {
+                  type: 'string',
+                  description: 'Pattern to search for (supports basic regex)'
+                },
+                file_pattern: {
+                  type: 'string',
+                  description: 'File pattern to search in (e.g., "*.js", "*.ts", "*.json")',
+                  default: '*'
+                }
+              },
+              required: ['pattern']
+            },
+            handler: async ({ pattern, file_pattern = '*' }: { pattern: string; file_pattern?: string }) => {
+              const { exec } = require('child_process');
+              const { promisify } = require('util');
+              const execAsync = promisify(exec);
+
+              try {
+                const { stdout } = await execAsync(
+                  `docker run --rm -v ${volumeName}:/src alpine:latest sh -c "find /src -name '${file_pattern}' -type f -exec grep -l '${pattern}' {} \\;"`
+                );
+                return { success: true, matches: stdout.trim().split('\n').filter(Boolean) };
+              } catch (error) {
+                return { success: false, error: error instanceof Error ? error.message : String(error) };
+              }
+            }
+          }
+        ]
+      });
+
+      // Use the structured source code analysis instead of dummy vulnerability creation
+      // The AI analysis with tool calling has already been performed above
+      // Now we need to extract structured vulnerability information
+
+      // Get all source files from the Docker volume for analysis
+      // volumeName is already available from earlier in this method
+
+      // Read the main source files to get actual code content
+      const execAsync = promisify(exec);
+
+      let sourceCodeContent = '';
+      try {
+        // Get JavaScript/TypeScript files for structured analysis
+        const { stdout: jsFiles } = await execAsync(`docker run --rm -v ${volumeName}:/src alpine:latest find /src -name "*.js" -o -name "*.ts" -o -name "*.mjs" | head -10`);
+
+        if (jsFiles.trim()) {
+          // Read the first few source files for structured analysis
+          const files = jsFiles.trim().split('\n').slice(0, 3); // Limit to first 3 files
+          for (const file of files) {
+            try {
+              const { stdout: content } = await execAsync(`docker run --rm -v ${volumeName}:/src alpine:latest cat "${file}"`);
+              sourceCodeContent += `\n// === ${file} ===\n${content}\n`;
+            } catch (error) {
+              console.warn(`Could not read ${file}:`, error);
+            }
+          }
+        }
+      } catch (error) {
+        console.warn('Could not analyze source files:', error);
+      }
+
+      // Use the AI Analyzer's structured analysis method
+      const structuredAnalysis = await this.aiAnalyzer.analyzeSourceCodeSecurity(sourceCodeContent || response.content);
+
+      // Return the structured results
+      return {
+        vulnerabilities: structuredAnalysis.vulnerabilities,
+        suggestions: structuredAnalysis.suggestions
+      };
+
+    } finally {
+      // Clean up the Docker volume now that we're done with all analysis
+      if (typeof (sandboxProvider as any).cleanupCurrentVolume === 'function') {
+        await (sandboxProvider as any).cleanupCurrentVolume();
+      }
+    }
   }
 
   private async performBehavioralAnalysis(
     mcpServerPath: string,
     options: ScanOptions
   ): Promise<SecurityAnalysis> {
+    // Validate MCP server path for static-only mode
+    if (mcpServerPath === 'static-analysis-only') {
+      throw new Error('Behavioral analysis skipped: Static-only analysis mode (no MCP server to execute)');
+    }
+
+    // Check if MCP server path exists (for local paths)
+    if (!mcpServerPath.startsWith('http://') && !mcpServerPath.startsWith('https://')) {
+      // fs is already imported at the top
+      if (!fs.existsSync(mcpServerPath)) {
+        throw new Error(`Behavioral analysis failed: MCP server not found at path '${mcpServerPath}'`);
+      }
+    }
+
     const timeout = options.timeout || configManager.config.SCANNER_TIMEOUT;
 
     // Execute MCP server in sandbox
@@ -197,6 +408,11 @@ export class MCPSecurityScanner {
       undefined, // MCP config - could be provided in options
       { timeout: timeout / 1000 } // Convert to seconds
     );
+
+    // Only proceed with AI analysis if execution was actually successful
+    if (sandboxResult.exitCode !== 0) {
+      throw new Error(`Behavioral analysis failed: MCP server execution failed with exit code ${sandboxResult.exitCode}. Stderr: ${sandboxResult.stderr}`);
+    }
 
     // Analyze results with AI
     const analysis = await this.aiAnalyzer.analyzeMCPSecurity(
@@ -215,8 +431,9 @@ export class MCPSecurityScanner {
     sourceCodeAnalysis?: ComprehensiveScanResult['sourceCodeAnalysis'],
     behavioralAnalysis?: SecurityAnalysis
   ): ComprehensiveScanResult {
-    if (!behavioralAnalysis) {
-      throw new Error('Behavioral analysis is required for comprehensive results');
+    // For static-only mode, behavioral analysis is optional
+    if (!behavioralAnalysis && scanMode !== 'static') {
+      throw new Error('Behavioral analysis is required for comprehensive results in dynamic/hybrid modes');
     }
 
     // Determine overall risk by combining all analysis results
@@ -342,11 +559,11 @@ export class MCPSecurityScanner {
     const recommendations = new Set<string>();
 
     if (behavioralAnalysis) {
-      behavioralAnalysis.recommendations.forEach(rec => recommendations.add(rec));
+      behavioralAnalysis.recommendations.forEach((rec: string) => recommendations.add(rec));
     }
 
     if (sourceCodeAnalysis) {
-      sourceCodeAnalysis.suggestions.forEach(rec => recommendations.add(rec));
+      sourceCodeAnalysis.suggestions.forEach((rec: string) => recommendations.add(rec));
     }
 
     if (dependencyAnalysis) {
@@ -371,8 +588,8 @@ export class MCPSecurityScanner {
   }
 }
 
-// CLI entry point
-if (require.main === module) {
-  const scanner = new MCPSecurityScanner();
-  console.log('MCP Security Scanner v0.1.0');
-}
+// CLI entry point - commented out for ES module compatibility
+// if (require.main === module) {
+//   const scanner = new MCPSecurityScanner();
+//   console.log('MCP Security Scanner v0.1.0');
+// }

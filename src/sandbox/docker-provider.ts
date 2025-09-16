@@ -226,11 +226,21 @@ export class DockerSandboxProvider extends SandboxProvider {
         success: false,
         error: error.message || String(error)
       };
-    } finally {
-      // Cleanup volume
-      if (volumeName) {
-        await execAsync(`docker volume rm ${volumeName}`).catch(() => {});
+    }
+    // Don't cleanup volume here - let it be cleaned up after dependency analysis
+  }
+
+  /**
+   * Clean up the current Docker volume after dependency analysis is complete
+   */
+  async cleanupCurrentVolume(): Promise<void> {
+    const volumeName = (this as any)._currentVolume;
+    if (volumeName) {
+      try {
+        await execAsync(`docker volume rm ${volumeName}`);
         delete (this as any)._currentVolume;
+      } catch (error) {
+        console.warn('Warning: Failed to cleanup Docker volume:', error);
       }
     }
   }

@@ -27,6 +27,7 @@ const RAW_RUNTIME_STATE =
       [null, {\
         "packageLocation": "./",\
         "packageDependencies": [\
+          ["@ai-sdk/anthropic", "virtual:720bbbf6e1e32fd7666b82f977975efec000071416a6c83e64b6743627cc60237d3bac8f185bd08cd9cbbe0f3b47d53539646328554fefcad01b6435ef69045a#npm:2.0.17"],\
           ["@ai-sdk/openai", "virtual:720bbbf6e1e32fd7666b82f977975efec000071416a6c83e64b6743627cc60237d3bac8f185bd08cd9cbbe0f3b47d53539646328554fefcad01b6435ef69045a#npm:2.0.30"],\
           ["@types/jest", "npm:30.0.0"],\
           ["@types/node", "npm:24.5.0"],\
@@ -44,6 +45,30 @@ const RAW_RUNTIME_STATE =
         "linkType": "SOFT"\
       }]\
     ]],\
+    ["@ai-sdk/anthropic", [\
+      ["npm:2.0.17", {\
+        "packageLocation": "../../../.yarn/berry/cache/@ai-sdk-anthropic-npm-2.0.17-cedf2a881d-10c0.zip/node_modules/@ai-sdk/anthropic/",\
+        "packageDependencies": [\
+          ["@ai-sdk/anthropic", "npm:2.0.17"]\
+        ],\
+        "linkType": "SOFT"\
+      }],\
+      ["virtual:720bbbf6e1e32fd7666b82f977975efec000071416a6c83e64b6743627cc60237d3bac8f185bd08cd9cbbe0f3b47d53539646328554fefcad01b6435ef69045a#npm:2.0.17", {\
+        "packageLocation": "./.yarn/__virtual__/@ai-sdk-anthropic-virtual-7e8a5ee96f/4/.yarn/berry/cache/@ai-sdk-anthropic-npm-2.0.17-cedf2a881d-10c0.zip/node_modules/@ai-sdk/anthropic/",\
+        "packageDependencies": [\
+          ["@ai-sdk/anthropic", "virtual:720bbbf6e1e32fd7666b82f977975efec000071416a6c83e64b6743627cc60237d3bac8f185bd08cd9cbbe0f3b47d53539646328554fefcad01b6435ef69045a#npm:2.0.17"],\
+          ["@ai-sdk/provider", "npm:2.0.0"],\
+          ["@ai-sdk/provider-utils", "virtual:7e8a5ee96f4bf877eb1629c196766be933a498cdfb1e488a6f22c0286f7f298c62505aa1ef38b0180d2587ae9801f22c68c9dd4c699a4ca788b307ac0e29951b#npm:3.0.9"],\
+          ["@types/zod", null],\
+          ["zod", "npm:4.1.8"]\
+        ],\
+        "packagePeers": [\
+          "@types/zod",\
+          "zod"\
+        ],\
+        "linkType": "HARD"\
+      }]\
+    ]],\
     ["@ai-sdk/gateway", [\
       ["npm:1.0.23", {\
         "packageLocation": "../../../.yarn/berry/cache/@ai-sdk-gateway-npm-1.0.23-14709c030f-10c0.zip/node_modules/@ai-sdk/gateway/",\
@@ -57,7 +82,7 @@ const RAW_RUNTIME_STATE =
         "packageDependencies": [\
           ["@ai-sdk/gateway", "virtual:91e13dba94d3871e2808088a2d80cdcbae8fa8492b953b7e0b765896be15461f617acdab2079740c18cedf9175e950e7679d8b53ffb55f9470ccb17e95b818a0#npm:1.0.23"],\
           ["@ai-sdk/provider", "npm:2.0.0"],\
-          ["@ai-sdk/provider-utils", "virtual:6a3b7a75ed11aa7a3eda3278da75fc547c95f875ee159a836cb44649deead9a0e4a6a1e79a24b88ef11d305791f5a5702d7fa4647b459b11d3d42847ebc12b28#npm:3.0.9"],\
+          ["@ai-sdk/provider-utils", "virtual:7e8a5ee96f4bf877eb1629c196766be933a498cdfb1e488a6f22c0286f7f298c62505aa1ef38b0180d2587ae9801f22c68c9dd4c699a4ca788b307ac0e29951b#npm:3.0.9"],\
           ["@types/zod", null],\
           ["zod", "npm:4.1.8"]\
         ],\
@@ -81,7 +106,7 @@ const RAW_RUNTIME_STATE =
         "packageDependencies": [\
           ["@ai-sdk/openai", "virtual:720bbbf6e1e32fd7666b82f977975efec000071416a6c83e64b6743627cc60237d3bac8f185bd08cd9cbbe0f3b47d53539646328554fefcad01b6435ef69045a#npm:2.0.30"],\
           ["@ai-sdk/provider", "npm:2.0.0"],\
-          ["@ai-sdk/provider-utils", "virtual:6a3b7a75ed11aa7a3eda3278da75fc547c95f875ee159a836cb44649deead9a0e4a6a1e79a24b88ef11d305791f5a5702d7fa4647b459b11d3d42847ebc12b28#npm:3.0.9"],\
+          ["@ai-sdk/provider-utils", "virtual:7e8a5ee96f4bf877eb1629c196766be933a498cdfb1e488a6f22c0286f7f298c62505aa1ef38b0180d2587ae9801f22c68c9dd4c699a4ca788b307ac0e29951b#npm:3.0.9"],\
           ["@types/zod", null],\
           ["zod", "npm:4.1.8"]\
         ],\
@@ -110,10 +135,10 @@ const RAW_RUNTIME_STATE =
         ],\
         "linkType": "SOFT"\
       }],\
-      ["virtual:6a3b7a75ed11aa7a3eda3278da75fc547c95f875ee159a836cb44649deead9a0e4a6a1e79a24b88ef11d305791f5a5702d7fa4647b459b11d3d42847ebc12b28#npm:3.0.9", {\
-        "packageLocation": "./.yarn/__virtual__/@ai-sdk-provider-utils-virtual-e3c23bac98/4/.yarn/berry/cache/@ai-sdk-provider-utils-npm-3.0.9-a1fcf189ea-10c0.zip/node_modules/@ai-sdk/provider-utils/",\
+      ["virtual:7e8a5ee96f4bf877eb1629c196766be933a498cdfb1e488a6f22c0286f7f298c62505aa1ef38b0180d2587ae9801f22c68c9dd4c699a4ca788b307ac0e29951b#npm:3.0.9", {\
+        "packageLocation": "./.yarn/__virtual__/@ai-sdk-provider-utils-virtual-ae033c0e5a/4/.yarn/berry/cache/@ai-sdk-provider-utils-npm-3.0.9-a1fcf189ea-10c0.zip/node_modules/@ai-sdk/provider-utils/",\
         "packageDependencies": [\
-          ["@ai-sdk/provider-utils", "virtual:6a3b7a75ed11aa7a3eda3278da75fc547c95f875ee159a836cb44649deead9a0e4a6a1e79a24b88ef11d305791f5a5702d7fa4647b459b11d3d42847ebc12b28#npm:3.0.9"],\
+          ["@ai-sdk/provider-utils", "virtual:7e8a5ee96f4bf877eb1629c196766be933a498cdfb1e488a6f22c0286f7f298c62505aa1ef38b0180d2587ae9801f22c68c9dd4c699a4ca788b307ac0e29951b#npm:3.0.9"],\
           ["@ai-sdk/provider", "npm:2.0.0"],\
           ["@standard-schema/spec", "npm:1.0.0"],\
           ["@types/zod", null],\
@@ -2373,7 +2398,7 @@ const RAW_RUNTIME_STATE =
           ["ai", "virtual:720bbbf6e1e32fd7666b82f977975efec000071416a6c83e64b6743627cc60237d3bac8f185bd08cd9cbbe0f3b47d53539646328554fefcad01b6435ef69045a#npm:5.0.44"],\
           ["@ai-sdk/gateway", "virtual:91e13dba94d3871e2808088a2d80cdcbae8fa8492b953b7e0b765896be15461f617acdab2079740c18cedf9175e950e7679d8b53ffb55f9470ccb17e95b818a0#npm:1.0.23"],\
           ["@ai-sdk/provider", "npm:2.0.0"],\
-          ["@ai-sdk/provider-utils", "virtual:6a3b7a75ed11aa7a3eda3278da75fc547c95f875ee159a836cb44649deead9a0e4a6a1e79a24b88ef11d305791f5a5702d7fa4647b459b11d3d42847ebc12b28#npm:3.0.9"],\
+          ["@ai-sdk/provider-utils", "virtual:7e8a5ee96f4bf877eb1629c196766be933a498cdfb1e488a6f22c0286f7f298c62505aa1ef38b0180d2587ae9801f22c68c9dd4c699a4ca788b307ac0e29951b#npm:3.0.9"],\
           ["@opentelemetry/api", "npm:1.9.0"],\
           ["@types/zod", null],\
           ["zod", "npm:4.1.8"]\
@@ -4675,6 +4700,7 @@ const RAW_RUNTIME_STATE =
         "packageLocation": "./",\
         "packageDependencies": [\
           ["mcp_sec", "workspace:."],\
+          ["@ai-sdk/anthropic", "virtual:720bbbf6e1e32fd7666b82f977975efec000071416a6c83e64b6743627cc60237d3bac8f185bd08cd9cbbe0f3b47d53539646328554fefcad01b6435ef69045a#npm:2.0.17"],\
           ["@ai-sdk/openai", "virtual:720bbbf6e1e32fd7666b82f977975efec000071416a6c83e64b6743627cc60237d3bac8f185bd08cd9cbbe0f3b47d53539646328554fefcad01b6435ef69045a#npm:2.0.30"],\
           ["@types/jest", "npm:30.0.0"],\
           ["@types/node", "npm:24.5.0"],\
