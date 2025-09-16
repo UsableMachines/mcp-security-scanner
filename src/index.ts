@@ -215,31 +215,69 @@ export class MCPSecurityScanner {
       const response = await this.aiAnalyzer.createCompletionWithProvider('anthropic', [
         {
           role: 'system',
-          content: `You are an expert MCP (Model Context Protocol) security analyzer. Your task is to analyze a cloned repository for security vulnerabilities specific to MCP servers.
+          content: `You are an expert MCP (Model Context Protocol) security analyzer conducting a security assessment for deployment in the Kindo platform. Follow this systematic methodology:
 
-Focus on these MCP-specific security issues:
-- Command injection in tool implementations
-- Hardcoded credentials/secrets in configurations
-- Authentication bypass vulnerabilities
-- Privilege escalation patterns
-- Data exfiltration risks
-- Tool poisoning via malicious descriptions
-- Prompt injection vulnerabilities
-- Confused deputy attacks
+## ANALYSIS METHODOLOGY:
 
-The repository is available in a Docker volume named "${volumeName}" mounted at /src.
+### 1. REPOSITORY STRUCTURE ANALYSIS
+- Identify main entry points (package.json, index files)
+- Map MCP server architecture and dependencies
+- Locate configuration files and environment setups
 
-You have access to tools that can:
-1. List directory contents
-2. Read file contents
-3. Search for patterns across files
-4. Analyze package.json dependencies
+### 2. MCP TOOL SECURITY ANALYSIS
+For each MCP tool implementation, examine:
+- Parameter injection vulnerabilities (command, path, code injection)
+- Input validation and sanitization patterns
+- External command execution with user data
+- Unsafe deserialization of tool parameters
+- File system access and path traversal risks
 
-Analyze the repository systematically and provide specific findings with file paths and line numbers.`
+### 3. MCP RESOURCE HANDLER ANALYSIS
+Check resource handlers for:
+- Path traversal vulnerabilities (../, absolute paths)
+- Unauthorized file system access
+- Directory listing exposure
+- Sensitive file access patterns
+
+### 4. AUTHENTICATION & AUTHORIZATION
+Verify security controls:
+- MCP session validation mechanisms
+- API key handling and storage security
+- Authentication bypass possibilities
+- Authorization enforcement for tools/resources
+
+### 5. KINDO PLATFORM INTEGRATION RISKS
+Assess deployment-specific concerns:
+- Hardcoded secrets in configuration files
+- Network access patterns and external dependencies
+- Resource consumption and DoS potential
+- Multi-tenant isolation considerations
+- Environment variable security
+
+### 6. PRODUCTION SECURITY PATTERNS
+Check for:
+- Error handling that exposes sensitive information
+- Logging of sensitive data
+- CORS and HTTP security headers
+- Input validation bypass patterns
+
+## SEVERITY RATING (Production Impact for Kindo):
+- CRITICAL: Remote code execution, credential theft, data breach potential
+- HIGH: Authentication bypass, privilege escalation, system compromise
+- MEDIUM: Information disclosure, DoS potential, configuration weaknesses
+- LOW: Best practice improvements, hardening recommendations
+
+## OUTPUT REQUIREMENTS:
+- Provide specific file paths and line numbers
+- Include actual vulnerable code snippets
+- Focus on MCP-specific attack vectors
+- Prioritize findings by production deployment risk
+
+The repository is available in a Docker volume "${volumeName}" mounted at /src. Use your tools systematically to conduct this analysis.`
         },
         {
           role: 'user',
-          content: 'Please analyze this MCP repository for security vulnerabilities. Start by exploring the structure and then dive into the code.'
+          content: 'Conduct a comprehensive MCP security analysis following the systematic methodology provided. Begin with repository structure analysis, then proceed through each phase: MCP tools, resource handlers, authentication, Kindo platform risks, and production security patterns. Provide detailed findings with specific file paths, line numbers, and code snippets for each vulnerability discovered.'
         }
       ], {
         tools: [

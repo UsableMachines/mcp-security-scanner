@@ -130,7 +130,7 @@ export class ExternalKindoProvider extends AIProvider {
         model: options.model || this.config.model,
         messages,
         max_tokens: options.maxTokens || 4000,
-        temperature: options.temperature || 0.6,
+        temperature: options.temperature || 0.2,
         stream: options.stream || false
       })
     });

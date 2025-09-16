@@ -14,6 +14,9 @@ const ConfigSchema = z.object({
   KINDO_API_KEY: z.string().min(1, 'Kindo API key is required'),
   KINDO_LLM_BASE_URL: z.string().url().default('https://llm.kindo.ai/v1'),
   KINDO_MODEL: z.string().default('default'),
+
+  // Anthropic API configuration
+  ANTHROPIC_API_KEY: z.string(),
   
   // Sandbox configuration
   PREFERRED_SANDBOX: z.enum(['docker', 'daytona', 'auto']).default('auto'),
@@ -21,7 +24,7 @@ const ConfigSchema = z.object({
   DAYTONA_API_KEY: z.string().optional(),
   
   // AI Router configuration
-  AI_PROVIDER: z.enum(['external-kindo', 'internal-kindo']).default('external-kindo'),
+  AI_PROVIDER: z.enum(['external-kindo', 'internal-kindo', 'anthropic']).default('anthropic'),
   
   // Scanner configuration
   SCANNER_TIMEOUT: z.number().default(300000), // 5 minutes
@@ -51,6 +54,9 @@ class ConfigManager {
       KINDO_API_KEY: process.env.KINDO_API_KEY,
       KINDO_LLM_BASE_URL: process.env.KINDO_LLM_BASE_URL,
       KINDO_MODEL: process.env.KINDO_MODEL,
+
+      // Anthropic configuration
+      ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
       
       // Sandbox configuration  
       PREFERRED_SANDBOX: process.env.PREFERRED_SANDBOX,
@@ -71,7 +77,17 @@ class ConfigManager {
     };
 
     try {
-      return ConfigSchema.parse(rawConfig);
+      const config = ConfigSchema.parse(rawConfig);
+
+      // Conditional validation based on AI provider
+      if (config.AI_PROVIDER === 'anthropic' && !config.ANTHROPIC_API_KEY) {
+        throw new Error('ANTHROPIC_API_KEY is required when AI_PROVIDER is set to "anthropic"');
+      }
+      if ((config.AI_PROVIDER === 'external-kindo' || config.AI_PROVIDER === 'internal-kindo') && !config.KINDO_API_KEY) {
+        throw new Error('KINDO_API_KEY is required when AI_PROVIDER is set to a Kindo provider');
+      }
+
+      return config;
     } catch (error) {
       if (error instanceof z.ZodError) {
         const missingFields = error.issues.map((e: any) => e.path.join('.')).join(', ');
@@ -111,6 +127,9 @@ class ConfigManager {
         apiKey: config.KINDO_API_KEY,
         baseUrl: config.KINDO_LLM_BASE_URL,
         model: config.KINDO_MODEL
+      },
+      anthropic: {
+        apiKey: config.ANTHROPIC_API_KEY
       }
     };
   }

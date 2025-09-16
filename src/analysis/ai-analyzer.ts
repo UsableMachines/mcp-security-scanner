@@ -133,35 +133,57 @@ export class AIAnalyzer {
   }> {
     await this.initialize();
 
-    const analysisPrompt = `Analyze this MCP server source code for security vulnerabilities:
+    const analysisPrompt = `Analyze this MCP server source code for security vulnerabilities using systematic methodology:
 
 \`\`\`javascript
 ${sourceCode.substring(0, 12000)}
 ${sourceCode.length > 12000 ? '\n... (truncated for analysis)' : ''}
 \`\`\`
 
-Focus on MCP-specific security patterns:
-1. Command injection in tool implementations
-2. Path traversal in resource handlers  
-3. Hardcoded credentials or API keys
-4. Unsafe deserialization of requests
-5. Missing input validation on tool parameters
-6. Authentication/authorization bypasses
-7. Prompt injection vulnerabilities
-8. Insecure external API calls
+## SYSTEMATIC ANALYSIS FRAMEWORK:
 
-Return JSON with:
+### 1. MCP TOOL IMPLEMENTATIONS
+- Parameter injection (command, path, code injection)
+- Input validation gaps
+- Unsafe command execution
+- File system access patterns
+
+### 2. AUTHENTICATION & AUTHORIZATION
+- Session validation weaknesses
+- API key handling security
+- Bypass vulnerabilities
+- Missing authorization checks
+
+### 3. KINDO DEPLOYMENT RISKS
+- Hardcoded secrets exposure
+- External API security
+- Resource consumption vulnerabilities
+- Multi-tenant isolation issues
+
+### 4. PRODUCTION SECURITY
+- Error information disclosure
+- Logging of sensitive data
+- Input validation bypasses
+- CORS and security headers
+
+## SEVERITY (Kindo Production Impact):
+- CRITICAL: RCE, credential theft, data breach
+- HIGH: Auth bypass, privilege escalation
+- MEDIUM: Info disclosure, DoS potential
+- LOW: Configuration improvements
+
+Return structured JSON:
 {
   "vulnerabilities": [
     {
-      "type": "vulnerability_type",
+      "type": "SPECIFIC_VULNERABILITY_TYPE",
       "severity": "critical|high|medium|low",
       "line": line_number,
-      "description": "detailed description", 
-      "code": "relevant code snippet"
+      "description": "detailed security impact and attack vector",
+      "code": "actual vulnerable code snippet"
     }
   ],
-  "suggestions": ["improvement recommendations"]
+  "suggestions": ["specific actionable remediation steps"]
 }`;
 
     try {
