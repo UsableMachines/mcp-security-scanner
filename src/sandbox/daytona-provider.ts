@@ -1,5 +1,6 @@
 /**
- * Daytona microVM sandbox provider for production
+ * Daytona microVM sandbox provider for production parity to Kindo platform
+ * This is an TBD placeholder without having tested actual daytona usage
  */
 
 import { SandboxProvider, SandboxConfig, SandboxResult } from './sandbox-provider';

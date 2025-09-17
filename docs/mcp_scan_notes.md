@@ -153,6 +153,7 @@
 
   Their approach is complementary to ours rather than competitive - we could potentially integrate both approaches for complete MCP security coverage! 🛡️
 
+Below is concepts for implmentation
 
    Guardrails & Runtime Policy Enforcement
 
