@@ -5,14 +5,30 @@
 
 import { z } from 'zod';
 
-// Schema for individual MCP server configuration
+// Schema for individual MCP server configuration - handles all client variations
 export const MCPServerConfigSchema = z.object({
-  command: z.string(),
+  // Command-based servers (local/Docker execution)
+  command: z.string().optional(),
   args: z.array(z.string()).optional(),
   env: z.record(z.string(), z.string()).optional(),
-  // Future: URL-based configurations
-  url: z.string().optional(),
+
+  // Remote URL-based servers (different client variations)
+  url: z.string().optional(),           // Cursor, Claude Desktop, Notion
+  serverUrl: z.string().optional(),     // Windsurf
+  httpUrl: z.string().optional(),       // Gemini CLI
+
+  // Transport type hints
+  type: z.string().optional(),          // VS Code: "http", Cline: "streamableHttp"
+
+  // Headers for authentication
   headers: z.record(z.string(), z.string()).optional()
+}).refine((data) => {
+  // Either command OR at least one URL field must be present
+  const hasCommand = !!data.command;
+  const hasUrl = !!(data.url || data.serverUrl || data.httpUrl);
+  return hasCommand || hasUrl;
+}, {
+  message: "Server must have either 'command' or a URL field (url/serverUrl/httpUrl)"
 });
 
 // Schema for the complete MCP configuration file

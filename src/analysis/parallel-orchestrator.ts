@@ -289,12 +289,13 @@ export class ParallelAnalysisOrchestrator {
     const startTime = Date.now();
 
     try {
-      // Step 1: Extract Docker configurations from JSON
-      let dockerConfigs = this.extractDockerConfigurations(mcpJsonConfig);
+      // Step 1: Categorize servers by type
+      const { dockerConfigs, remoteConfigs } = this.categorizeServers(mcpJsonConfig);
 
       // Step 1.5: Inject API key if provided via CLI
-      if (options.apiKey) {
-        dockerConfigs = this.injectApiKeyIntoConfigs(dockerConfigs, options.apiKey);
+      if (options.apiKey && dockerConfigs.length > 0) {
+        const updatedDockerConfigs = this.injectApiKeyIntoConfigs(dockerConfigs, options.apiKey);
+        dockerConfigs.splice(0, dockerConfigs.length, ...updatedDockerConfigs);
       }
 
       // Step 2: Run analyses in parallel
@@ -368,6 +369,78 @@ export class ParallelAnalysisOrchestrator {
       console.error('❌ Enhanced MCP JSON analysis failed:', error);
       throw new Error(`Enhanced MCP JSON analysis failed: ${error instanceof Error ? error.message : String(error)}`);
     }
+  }
+
+  /**
+   * Categorize MCP servers by type: Docker vs Remote
+   */
+  private categorizeServers(mcpJsonConfig: any): {
+    dockerConfigs: DockerMCPConfig[],
+    remoteConfigs: any[]
+  } {
+    const dockerConfigs: DockerMCPConfig[] = [];
+    const remoteConfigs: any[] = [];
+
+    try {
+      if (!mcpJsonConfig.mcpServers) {
+        return { dockerConfigs, remoteConfigs };
+      }
+
+      for (const [serverName, serverConfig] of Object.entries(mcpJsonConfig.mcpServers)) {
+        const config = serverConfig as any;
+
+        // Check if this is a remote URL-based server (all client variations)
+        const isRemote = !!(config.url || config.serverUrl || config.httpUrl ||
+                           config.type === 'http' || config.type === 'streamableHttp');
+
+        if (isRemote) {
+          console.log(`🌐 Detected remote MCP server: ${serverName}`);
+          remoteConfigs.push({
+            serverName,
+            config,
+            url: config.url || config.serverUrl || config.httpUrl,
+            type: config.type || 'http',
+            headers: config.headers || {}
+          });
+        }
+        // Local execution servers (command-based)
+        else if (config.command) {
+          // Check if this is a native Docker-based MCP server
+          if (config.command === 'docker' && config.args && config.args.length > 0) {
+            const dockerImage = this.extractDockerImage(config.args);
+
+            if (dockerImage) {
+              dockerConfigs.push({
+                serverName,
+                dockerImage,
+                dockerArgs: config.args.filter((arg: string) => arg !== dockerImage),
+                environment: config.env || {},
+                timeout: 60
+              });
+            }
+          }
+          // Handle proxy/bridge servers by wrapping them in Docker
+          else if (config.args && this.isProxyBridgeServer(config.command, config.args)) {
+            console.log(`🔗 Creating Docker wrapper for proxy server: ${serverName}`);
+            const proxyDockerConfig = this.createProxyServerDockerConfig(serverName, config);
+            if (proxyDockerConfig) {
+              dockerConfigs.push(proxyDockerConfig);
+            }
+          }
+        }
+      }
+    } catch (error) {
+      console.warn('Failed to categorize servers:', error);
+    }
+
+    // Only log relevant server types that were found
+    if (dockerConfigs.length > 0) {
+      console.log(`📦 Extracted ${dockerConfigs.length} Docker configs for behavioral analysis`);
+    }
+    if (remoteConfigs.length > 0) {
+      console.log(`🌐 Detected ${remoteConfigs.length} remote MCP servers`);
+    }
+    return { dockerConfigs, remoteConfigs };
   }
 
   /**
