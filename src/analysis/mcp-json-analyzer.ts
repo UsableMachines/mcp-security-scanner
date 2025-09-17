@@ -23,6 +23,9 @@ const MCPRiskSchema = z.object({
     'HIDDEN_AUTHENTICATION',
     'CREDENTIAL_INTERCEPTION',
     'AUTH_BRIDGE_DETECTED',
+    'AUTH_OBFUSCATION',
+    'PROXY_BRIDGE_DETECTED',
+    'REMOTE_CODE_EXECUTION_RISK',
     'UNTRUSTED_NPX_DOWNLOAD',
     'UNVERIFIED_PACKAGE',
     'TYPOSQUATTING_RISK',
@@ -35,7 +38,10 @@ const MCPRiskSchema = z.object({
     'COMMAND_INJECTION',
     'SUPPLY_CHAIN_ATTACK',
     'MISSING_AUTHENTICATION',
-    'RESOURCE_EXHAUSTION'
+    'RESOURCE_EXHAUSTION',
+    'ANALYSIS_FAILED',
+    'DATA_EXFILTRATION',
+    'FILE_SYSTEM_MODIFICATION'
   ]),
   severity: z.enum(['critical', 'high', 'medium', 'low']),
   description: z.string(),
@@ -108,6 +114,121 @@ export class MCPJsonAnalyzer {
     this.sandboxManager = sandboxManager;
   }
 
+  /**
+   * Categorize servers into proxy/bridge vs true local execution
+   * This is critical for handling edge cases like Linear's mcp-remote pattern
+   */
+  private categorizeServers(mcpConfig: MCPConfiguration): {
+    proxyServers: [string, MCPServerConfig][];
+    localExecutionServers: [string, MCPServerConfig][];
+  } {
+    const proxyServers: [string, MCPServerConfig][] = [];
+    const localExecutionServers: [string, MCPServerConfig][] = [];
+
+    for (const [serverName, serverConfig] of Object.entries(mcpConfig.mcpServers)) {
+      // Skip Docker and URL-based configs (already handled correctly)
+      if (!serverConfig.command || serverConfig.command === 'docker' || !serverConfig.args) {
+        continue;
+      }
+
+      const args = Array.isArray(serverConfig.args) ? serverConfig.args : [];
+
+      // 1. Check for known proxy/bridge package names
+      const isProxyPackage = this.isProxyBridgePackage(args);
+
+      // 2. Check for remote URLs in arguments
+      const hasRemoteUrl = this.hasRemoteUrlInArgs(args);
+
+      // 3. Check for transport/bridge keywords
+      const hasBridgeKeywords = this.hasBridgeTransportKeywords(args);
+
+      if (isProxyPackage || hasRemoteUrl || hasBridgeKeywords) {
+        console.log(`🔗 Detected proxy/bridge server: ${serverName}`);
+        console.log(`   Package: ${isProxyPackage ? 'YES' : 'NO'} | URL: ${hasRemoteUrl ? 'YES' : 'NO'} | Transport: ${hasBridgeKeywords ? 'YES' : 'NO'}`);
+        console.log(`   Command: ${serverConfig.command} ${args.join(' ')}`);
+        proxyServers.push([serverName, serverConfig]);
+      } else if (serverConfig.command && serverConfig.command !== 'docker') {
+        console.log(`📦 Local execution server: ${serverName} (${serverConfig.command})`);
+        localExecutionServers.push([serverName, serverConfig]);
+      }
+    }
+
+    return { proxyServers, localExecutionServers };
+  }
+
+  /**
+   * Check if args contain known proxy/bridge package names
+   */
+  private isProxyBridgePackage(args: string[]): boolean {
+    const proxyPackagePatterns = [
+      'mcp-remote',           // Linear's pattern
+      'mcp-proxy',            // Generic proxy
+      '@sparfenyuk/mcp-proxy', // Specific proxy package
+      'fastmcp-proxy',        // FastMCP proxy
+      'mcp-bridge',           // Bridge patterns
+      'mcp-connector',        // Connector patterns
+      'mcp-gateway',          // Gateway patterns
+      'mcp-tunnel',           // Tunnel patterns
+      'remote-mcp',           // Alternative naming
+      'bridge-mcp',           // Alternative naming
+      'proxy-mcp'             // Alternative naming
+    ];
+
+    return args.some(arg =>
+      proxyPackagePatterns.some(pattern =>
+        arg.includes(pattern) || arg === pattern
+      )
+    );
+  }
+
+  /**
+   * Check if args contain remote URLs (HTTP/HTTPS/WebSocket)
+   */
+  private hasRemoteUrlInArgs(args: string[]): boolean {
+    const urlPatterns = [
+      /^https?:\/\//,         // HTTP/HTTPS URLs
+      /^wss?:\/\//,           // WebSocket URLs
+      /\/sse$/,               // Server-Sent Events endpoints
+      /\/events$/,            // Events endpoints
+      /\/api\/mcp/,           // MCP API endpoints
+      /\.linear\.app/,        // Linear specific
+      /\.anthropic\.com/,     // Anthropic hosted
+      /\.openai\.com/         // OpenAI hosted
+    ];
+
+    return args.some(arg =>
+      urlPatterns.some(pattern => pattern.test(arg))
+    );
+  }
+
+  /**
+   * Check if args contain transport/bridge keywords
+   */
+  private hasBridgeTransportKeywords(args: string[]): boolean {
+    const bridgeKeywords = [
+      'transport',
+      'bridge',
+      'proxy',
+      'remote',
+      'tunnel',
+      'gateway',
+      'connector',
+      'relay',
+      'forward',
+      'stdio',
+      '--transport',
+      '--bridge',
+      '--proxy',
+      '--remote'
+    ];
+
+    return args.some(arg =>
+      bridgeKeywords.some(keyword =>
+        arg.toLowerCase().includes(keyword.toLowerCase())
+      )
+    );
+  }
+
   private async analyzeServerConfiguration(serverName: string, serverConfig: MCPServerConfig): Promise<{
     risks: MCPRisk[];
     packageAnalysis: {
@@ -166,13 +287,13 @@ export class MCPJsonAnalyzer {
   }
 
   /**
-   * Simple guidance for local execution patterns - redirect to --repo analysis
+   * Repository discovery - only suggest --repo for TRUE local execution (not proxy/bridge)
    */
   async discoverRepositoryFromJSON(mcpConfig: MCPConfiguration): Promise<{ repositories: string[]; suggestions: string[] }> {
-    const localExecutionServers = Object.entries(mcpConfig.mcpServers).filter(([_, config]: [string, MCPServerConfig]) =>
-      config.command && config.command !== 'docker'
-    );
+    // Use the same categorization logic to avoid suggesting --repo for proxy servers
+    const { proxyServers, localExecutionServers } = this.categorizeServers(mcpConfig);
 
+    // Only suggest --repo analysis for TRUE local execution servers (not proxies)
     if (localExecutionServers.length === 0) {
       return { repositories: [], suggestions: [] };
     }
@@ -209,11 +330,10 @@ export class MCPJsonAnalyzer {
       throw new Error(`Invalid MCP configuration: ${error instanceof Error ? error.message : String(error)}`);
     }
 
-    // Early exit for local execution patterns - redirect to --repo
-    const localExecutionServers = Object.entries(mcpConfig.mcpServers).filter(([_, config]: [string, MCPServerConfig]) =>
-      config.command && config.command !== 'docker'
-    );
+    // Enhanced proxy/bridge detection BEFORE local execution redirect
+    const { proxyServers, localExecutionServers } = this.categorizeServers(mcpConfig);
 
+    // Only redirect to --repo if we have LOCAL servers (not proxy/bridge servers)
     if (localExecutionServers.length > 0) {
       const serverNames = localExecutionServers.map(([name]) => name);
       const commands = localExecutionServers.map(([_, config]: [string, MCPServerConfig]) => config.command);
@@ -221,6 +341,13 @@ export class MCPJsonAnalyzer {
       const message = `\n❌ LOCAL EXECUTION DETECTED\nServers "${serverNames.join('", "')}" use "${commands.join('", "')}" commands.\n\nUse repository analysis instead:\nyarn node mcp_scan_cli.js --repo <github_repository_url>`;
       console.log(message);
       throw new Error('LOCAL_EXECUTION_REDIRECT');
+    }
+
+    // Log detected proxy/bridge servers
+    if (proxyServers.length > 0) {
+      const proxyNames = proxyServers.map(([name]) => name);
+      console.log(`🔗 Detected ${proxyServers.length} proxy/bridge servers: ${proxyNames.join(', ')}`);
+      console.log(`   These will be analyzed as remote servers in sandbox environment`);
     }
 
     // Perform comprehensive static analysis
@@ -363,6 +490,42 @@ export class MCPJsonAnalyzer {
   private analyzeNpxExecution(serverName: string, args: string[]): MCPRisk[] {
     const risks: MCPRisk[] = [];
 
+    // Check for proxy/bridge packages with authentication obfuscation
+    if (this.isProxyBridgePackage(args)) {
+      const packageName = this.extractPackageName(args);
+      const hasRemoteUrl = this.hasRemoteUrlInArgs(args);
+
+      risks.push({
+        type: 'PROXY_BRIDGE_DETECTED',
+        severity: 'high',
+        description: `Server "${serverName}" uses proxy/bridge package "${packageName}" which may obfuscate authentication and enable remote code execution`,
+        evidence: [
+          `Proxy package: ${packageName}`,
+          `Remote URL detected: ${hasRemoteUrl ? 'YES' : 'NO'}`,
+          `Full command: npx ${args.join(' ')}`
+        ],
+        mitigation: 'Review proxy package source code, verify authentication mechanisms, consider direct server connection instead',
+        aiConfidence: 0.95
+      });
+
+      // Specific risk for Linear's mcp-remote pattern
+      if (packageName === 'mcp-remote') {
+        risks.push({
+          type: 'AUTH_OBFUSCATION',
+          severity: 'critical',
+          description: `Server "${serverName}" uses Linear's mcp-remote package which completely obfuscates authentication flow and could enable data exfiltration`,
+          evidence: [
+            'mcp-remote package detected',
+            'Authentication flow hidden from inspection',
+            'Potential for arbitrary code execution through remote bridge',
+            'No visibility into actual credentials or tokens used'
+          ],
+          mitigation: 'Consider direct Linear API integration instead of mcp-remote bridge, implement audit logging for all remote MCP communications',
+          aiConfidence: 1.0
+        });
+      }
+    }
+
     // Check for auto-install flag (-y or --yes)
     if (args.includes('-y') || args.includes('--yes')) {
       risks.push({
@@ -376,6 +539,21 @@ export class MCPJsonAnalyzer {
     }
 
     return risks;
+  }
+
+  /**
+   * Extract package name from npx/uvx arguments
+   */
+  private extractPackageName(args: string[]): string {
+    // Look for package name after -y flag
+    const yIndex = args.findIndex(arg => arg === '-y' || arg === '--yes');
+    if (yIndex !== -1 && yIndex < args.length - 1) {
+      return args[yIndex + 1];
+    }
+
+    // Fallback: first non-flag argument
+    const nonFlagArg = args.find(arg => !arg.startsWith('-'));
+    return nonFlagArg || 'unknown';
   }
 
   private analyzeUvxExecution(serverName: string, args: string[]): MCPRisk[] {

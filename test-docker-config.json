@@ -1,0 +1,18 @@
+{
+  "mcpServers": {
+    "malicious-test-server": {
+      "command": "docker",
+      "args": ["run", "--rm", "-i", "node:18-alpine", "node", "/tmp/malicious-server.js"],
+      "env": {
+        "NODE_ENV": "production"
+      }
+    },
+    "redis-server": {
+      "command": "docker",
+      "args": ["run", "--rm", "-i", "redis:7-alpine", "redis-server"],
+      "env": {
+        "REDIS_PASSWORD": "test123"
+      }
+    }
+  }
+}

@@ -9,6 +9,7 @@ import { SandboxManager } from '../sandbox/sandbox-manager';
 import { AIAnalyzer, type SecurityAnalysis } from './ai-analyzer';
 import { DependencyAnalyzer, type DependencyAnalysisResult } from './dependency-analyzer';
 import { MCPJsonAnalyzer, type MCPJsonAnalysis } from './mcp-json-analyzer';
+import { DockerBehavioralAnalyzer, type DockerBehavioralAnalysisResult, type DockerMCPConfig } from './docker-behavioral-analyzer';
 import { OSVService } from '../services/osv-service';
 
 // Analysis task types for parallel execution
@@ -47,6 +48,7 @@ export interface ParallelAnalysisResult {
   };
   behavioralAnalysis?: SecurityAnalysis;
   mcpJsonAnalysis?: MCPJsonAnalysis;
+  dockerBehavioralAnalysis?: DockerBehavioralAnalysisResult[];
   executionMetrics: {
     totalDuration: number;
     parallelSavings: number; // Time saved vs sequential execution
@@ -60,6 +62,7 @@ export class ParallelAnalysisOrchestrator {
   private aiAnalyzer: AIAnalyzer;
   private dependencyAnalyzer: DependencyAnalyzer;
   private mcpJsonAnalyzer: MCPJsonAnalyzer;
+  private dockerBehavioralAnalyzer: DockerBehavioralAnalyzer;
   private osvService: OSVService;
 
   constructor(
@@ -73,6 +76,7 @@ export class ParallelAnalysisOrchestrator {
     this.aiAnalyzer = aiAnalyzer;
     this.dependencyAnalyzer = dependencyAnalyzer;
     this.mcpJsonAnalyzer = mcpJsonAnalyzer;
+    this.dockerBehavioralAnalyzer = new DockerBehavioralAnalyzer(sandboxManager, aiAnalyzer);
     this.osvService = osvService;
   }
 
@@ -278,27 +282,297 @@ export class ParallelAnalysisOrchestrator {
   }
 
   /**
-   * Execute MCP JSON analysis for black-box configurations
+   * Execute enhanced MCP JSON analysis with parallel Docker behavioral analysis
    */
-  async executeMCPJsonAnalysis(mcpJsonConfig: any): Promise<MCPJsonAnalysis> {
-    console.log('🔍 Running MCP JSON configuration analysis...');
+  async executeMCPJsonAnalysis(mcpJsonConfig: any): Promise<MCPJsonAnalysis & { dockerBehavioralAnalysis?: DockerBehavioralAnalysisResult[] }> {
+    console.log('🔍 Running enhanced MCP JSON configuration analysis...');
     const startTime = Date.now();
 
     try {
-      const analysis = await this.mcpJsonAnalyzer.analyzeMCPConfiguration(mcpJsonConfig);
+      // Step 1: Extract Docker configurations from JSON
+      const dockerConfigs = this.extractDockerConfigurations(mcpJsonConfig);
+
+      // Step 2: Run analyses in parallel
+      const tasks = [];
+
+      // Traditional JSON analysis
+      tasks.push(this.executeTask('json_analysis', async () => {
+        return await this.mcpJsonAnalyzer.analyzeMCPConfiguration(mcpJsonConfig);
+      }));
+
+      // Docker behavioral analysis (if Docker servers or proxy servers found)
+      if (dockerConfigs.length > 0) {
+        tasks.push(this.executeTask('docker_behavioral', async () => {
+          const nativeDockerCount = dockerConfigs.filter(config => !config.serverName.includes('-proxy-sandbox')).length;
+          const proxyServerCount = dockerConfigs.filter(config => config.serverName.includes('-proxy-sandbox')).length;
+
+          if (nativeDockerCount > 0 && proxyServerCount > 0) {
+            console.log(`🐳 Found ${nativeDockerCount} Docker MCP servers + ${proxyServerCount} proxy servers for behavioral analysis`);
+          } else if (nativeDockerCount > 0) {
+            console.log(`🐳 Found ${nativeDockerCount} Docker MCP servers for behavioral analysis`);
+          } else {
+            console.log(`🔗 Created ${proxyServerCount} Docker sandboxes for proxy server behavioral analysis`);
+          }
+
+          return await this.dockerBehavioralAnalyzer.analyzeDockerMCPServersInParallel(dockerConfigs);
+        }));
+      }
+
+      console.log(`🔄 Executing ${tasks.length} JSON analysis tasks in parallel...`);
+      const results = await Promise.allSettled(tasks);
+
+      // Process results
+      let jsonAnalysis: MCPJsonAnalysis | undefined;
+      let dockerBehavioralResults: DockerBehavioralAnalysisResult[] | undefined;
+
+      for (const result of results) {
+        if (result.status === 'fulfilled') {
+          const { type, result: taskResult } = result.value;
+
+          if (type === 'json_analysis') {
+            jsonAnalysis = taskResult as MCPJsonAnalysis;
+          } else if (type === 'docker_behavioral') {
+            dockerBehavioralResults = taskResult as DockerBehavioralAnalysisResult[];
+          }
+        } else {
+          console.error('❌ JSON analysis task failed:', result.reason);
+        }
+      }
+
+      if (!jsonAnalysis) {
+        throw new Error('JSON analysis failed');
+      }
 
       const duration = Date.now() - startTime;
-      console.log(`✅ MCP JSON analysis completed in ${duration}ms`);
+      console.log(`✅ Enhanced MCP JSON analysis completed in ${duration}ms`);
 
-      return analysis;
+      if (dockerBehavioralResults) {
+        console.log(`🐳 Docker behavioral analysis: ${dockerBehavioralResults.length} servers analyzed`);
+      }
+
+      // Merge results
+      return {
+        ...jsonAnalysis,
+        dockerBehavioralAnalysis: dockerBehavioralResults
+      };
 
     } catch (error) {
       if (error instanceof Error && error.message === 'LOCAL_EXECUTION_REDIRECT') {
         throw error;
       }
-      console.error('❌ MCP JSON analysis failed:', error);
-      throw new Error(`MCP JSON analysis failed: ${error instanceof Error ? error.message : String(error)}`);
+      console.error('❌ Enhanced MCP JSON analysis failed:', error);
+      throw new Error(`Enhanced MCP JSON analysis failed: ${error instanceof Error ? error.message : String(error)}`);
     }
+  }
+
+  /**
+   * Extract Docker MCP configurations from JSON config
+   * Includes both native Docker servers AND proxy/bridge servers that need sandbox execution
+   */
+  private extractDockerConfigurations(mcpJsonConfig: any): DockerMCPConfig[] {
+    const dockerConfigs: DockerMCPConfig[] = [];
+
+    try {
+      if (!mcpJsonConfig.mcpServers) {
+        return dockerConfigs;
+      }
+
+      for (const [serverName, serverConfig] of Object.entries(mcpJsonConfig.mcpServers)) {
+        const config = serverConfig as any;
+
+        // Check if this is a native Docker-based MCP server
+        if (config.command === 'docker' && config.args && config.args.length > 0) {
+          // Parse Docker arguments to extract image and configuration
+          const dockerImage = this.extractDockerImage(config.args);
+
+          if (dockerImage) {
+            dockerConfigs.push({
+              serverName,
+              dockerImage,
+              dockerArgs: config.args.filter((arg: string) => arg !== dockerImage),
+              environment: config.env || {},
+              timeout: 60 // Default timeout
+            });
+          }
+        }
+        // NEW: Handle proxy/bridge servers (npx, uvx, etc.) by wrapping them in Docker
+        else if (config.command && config.args && this.isProxyBridgeServer(config.command, config.args)) {
+          console.log(`🔗 Creating Docker wrapper for proxy server: ${serverName}`);
+
+          // Create a Docker config that will run the proxy server in a Node.js container
+          const proxyDockerConfig = this.createProxyServerDockerConfig(serverName, config);
+          if (proxyDockerConfig) {
+            dockerConfigs.push(proxyDockerConfig);
+          }
+        }
+      }
+    } catch (error) {
+      console.warn('Failed to extract Docker configurations:', error);
+    }
+
+    console.log(`📦 Extracted ${dockerConfigs.length} Docker configs for behavioral analysis`);
+    return dockerConfigs;
+  }
+
+  /**
+   * Check if server configuration represents a proxy/bridge server
+   */
+  private isProxyBridgeServer(command: string, args: string[]): boolean {
+    // Known proxy/bridge patterns
+    const proxyPackagePatterns = [
+      'mcp-remote', 'mcp-proxy', '@sparfenyuk/mcp-proxy', 'fastmcp-proxy',
+      'mcp-bridge', 'mcp-connector', 'mcp-gateway', 'mcp-tunnel'
+    ];
+
+    const urlPatterns = [
+      /^https?:\/\//, /^wss?:\/\//, /\/sse$/, /\/events$/, /\/api\/mcp/,
+      /\.linear\.app/, /\.anthropic\.com/, /\.openai\.com/
+    ];
+
+    // Check for proxy packages in args
+    const hasProxyPackage = args.some(arg =>
+      proxyPackagePatterns.some(pattern => arg.includes(pattern))
+    );
+
+    // Check for remote URLs in args
+    const hasRemoteUrl = args.some(arg =>
+      urlPatterns.some(pattern => pattern.test(arg))
+    );
+
+    return (command === 'npx' || command === 'uvx') && (hasProxyPackage || hasRemoteUrl);
+  }
+
+  /**
+   * Create Docker configuration for proxy/bridge server execution
+   */
+  private createProxyServerDockerConfig(serverName: string, serverConfig: any): DockerMCPConfig | null {
+    try {
+      // For NPX proxy servers, use Node.js container
+      if (serverConfig.command === 'npx') {
+        const args = Array.isArray(serverConfig.args) ? serverConfig.args : [];
+        const packageName = this.extractPackageNameFromArgs(args);
+
+        return {
+          serverName: `${serverName}-proxy-sandbox`,
+          dockerImage: 'node:18-alpine', // Lightweight Node.js image
+          dockerArgs: [
+            'run', '--rm', '--network', 'none', // Isolated network initially
+            '-e', 'NODE_ENV=sandbox',
+            '-w', '/app'
+          ],
+          environment: {
+            MCP_SERVER_NAME: serverName,
+            MCP_PROXY_PACKAGE: packageName,
+            MCP_ARGS: JSON.stringify(args),
+            SANDBOX_MODE: 'true',
+            ...serverConfig.env
+          },
+          timeout: 120 // Longer timeout for proxy connections
+        };
+      }
+
+      // For UVX Python proxy servers, use Python container
+      if (serverConfig.command === 'uvx') {
+        const args = Array.isArray(serverConfig.args) ? serverConfig.args : [];
+
+        return {
+          serverName: `${serverName}-proxy-sandbox`,
+          dockerImage: 'python:3.11-alpine',
+          dockerArgs: [
+            'run', '--rm', '--network', 'none',
+            '-e', 'PYTHONPATH=/app',
+            '-w', '/app'
+          ],
+          environment: {
+            MCP_SERVER_NAME: serverName,
+            MCP_ARGS: JSON.stringify(args),
+            SANDBOX_MODE: 'true',
+            ...serverConfig.env
+          },
+          timeout: 120
+        };
+      }
+
+      return null;
+    } catch (error) {
+      console.warn(`Failed to create Docker config for proxy server ${serverName}:`, error);
+      return null;
+    }
+  }
+
+  /**
+   * Extract package name from npx/uvx arguments
+   */
+  private extractPackageNameFromArgs(args: string[]): string {
+    // Look for package name after -y flag
+    const yIndex = args.findIndex(arg => arg === '-y' || arg === '--yes');
+    if (yIndex !== -1 && yIndex < args.length - 1) {
+      return args[yIndex + 1];
+    }
+
+    // Fallback: first non-flag argument
+    const nonFlagArg = args.find(arg => !arg.startsWith('-'));
+    return nonFlagArg || 'unknown';
+  }
+
+  /**
+   * Extract Docker image name from Docker arguments
+   */
+  private extractDockerImage(args: string[]): string | null {
+    try {
+      // Look for the Docker image (usually after 'run' and all flags)
+      const runIndex = args.findIndex(arg => arg === 'run');
+      if (runIndex !== -1 && runIndex < args.length - 1) {
+
+        // Docker flags that take values (need to skip both flag and value)
+        const flagsWithValues = ['-e', '--env', '-v', '--volume', '-p', '--port', '--name', '--network', '--workdir', '-w', '--user', '-u'];
+
+        // Parse arguments after 'run' to find the Docker image
+        for (let i = runIndex + 1; i < args.length; i++) {
+          const arg = args[i];
+
+          // Skip flags that start with '-'
+          if (arg.startsWith('-')) {
+            // Check if this flag takes a value
+            if (flagsWithValues.includes(arg)) {
+              // Skip this flag and its value
+              i++; // Skip the next argument (the value)
+              continue;
+            }
+            // Skip standalone flags like --rm, --privileged
+            continue;
+          }
+
+          // First non-flag argument should be the Docker image
+          return arg;
+        }
+      }
+
+      // Fallback: look for an argument that looks like a Docker image
+      // This handles cases where 'run' isn't the first argument
+      for (let i = 0; i < args.length; i++) {
+        const arg = args[i];
+        if (!arg.startsWith('-') &&
+            !arg.includes('=') &&
+            (arg.includes('/') || arg.includes(':') || arg.match(/^[a-zA-Z0-9]+(:[a-zA-Z0-9.-]+)?$/))) {
+
+          // Make sure this isn't a value for a previous flag
+          if (i > 0) {
+            const prevArg = args[i - 1];
+            const flagsWithValues = ['-e', '--env', '-v', '--volume', '-p', '--port', '--name', '--network', '--workdir', '-w', '--user', '-u'];
+            if (flagsWithValues.includes(prevArg)) {
+              continue; // This is a flag value, not the Docker image
+            }
+          }
+
+          return arg;
+        }
+      }
+    } catch (error) {
+      console.warn('Failed to extract Docker image from args:', error);
+    }
+
+    return null;
   }
 
   private async executeTask<T>(

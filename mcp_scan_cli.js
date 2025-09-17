@@ -241,6 +241,52 @@ Examples:
       console.log(`   ⚠️  Skipped (static-only analysis mode)`);
     }
 
+    // Docker/Proxy Behavioral Analysis Results (new)
+    if (result.dockerBehavioralAnalysis && result.dockerBehavioralAnalysis.length > 0) {
+      const nativeDockerCount = result.dockerBehavioralAnalysis.filter(analysis => !analysis.serverName.includes('-proxy-sandbox')).length;
+      const proxyServerCount = result.dockerBehavioralAnalysis.filter(analysis => analysis.serverName.includes('-proxy-sandbox')).length;
+
+      if (nativeDockerCount > 0 && proxyServerCount > 0) {
+        console.log(`\n🐳 DOCKER BEHAVIORAL ANALYSIS:`);
+        console.log(`   Docker Servers:       ${nativeDockerCount}`);
+        console.log(`   Proxy Servers:        ${proxyServerCount}`);
+      } else if (nativeDockerCount > 0) {
+        console.log(`\n🐳 DOCKER BEHAVIORAL ANALYSIS:`);
+        console.log(`   Docker Servers:       ${nativeDockerCount}`);
+      } else {
+        console.log(`\n🔗 PROXY BEHAVIORAL ANALYSIS:`);
+        console.log(`   Proxy Servers:        ${proxyServerCount}`);
+      }
+
+      let totalRisks = 0;
+      result.dockerBehavioralAnalysis.forEach(analysis => {
+        totalRisks += analysis.securityAnalysis.risks.length;
+      });
+      console.log(`   Total Risks:          ${totalRisks}`);
+
+      if (totalRisks > 0) {
+        console.log(`\n🔍 DOCKER BEHAVIORAL RISKS FOUND:`);
+        result.dockerBehavioralAnalysis.forEach((analysis, i) => {
+          console.log(`\n   Server: ${analysis.serverName} (${analysis.dockerImage})`);
+          console.log(`   Execution: ${analysis.executionSuccess ? '✅ Success' : '❌ Failed'}`);
+          console.log(`   Network Connections: ${analysis.executionMetrics.networkConnections}`);
+          console.log(`   File Operations: ${analysis.executionMetrics.fileOperations}`);
+
+          if (analysis.securityAnalysis.risks.length > 0) {
+            console.log(`   Security Risks:`);
+            analysis.securityAnalysis.risks.forEach((risk, j) => {
+              console.log(`      ${j + 1}. ${risk.type.replace(/_/g, ' ').toUpperCase()} (${risk.severity.toUpperCase()})`);
+              console.log(`         ${risk.description}`);
+              console.log(`         Confidence: ${Math.round(risk.confidence * 100)}%`);
+              if (risk.evidence && risk.evidence.length > 0) {
+                console.log(`         Evidence: ${risk.evidence.slice(0, 2).join(', ')}${risk.evidence.length > 2 ? '...' : ''}`);
+              }
+            });
+          }
+        });
+      }
+    }
+
     // MCP Prompt Security Analysis (new)
     if (result.mcpPromptSecurityAnalysis) {
       console.log(`\n🛡️  MCP PROMPT SECURITY ANALYSIS:`);

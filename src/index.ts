@@ -168,12 +168,28 @@ export class MCPSecurityScanner {
       behavioralAnalysis = undefined;
     }
 
-    // Black Box MCP JSON Analysis
+    // Black Box MCP JSON Analysis with Docker Behavioral Analysis
     let mcpJsonAnalysis: MCPJsonAnalysis | undefined;
+    let dockerBehavioralAnalysis: any[] | undefined;
     if (scanMode === 'json' && options.mcpJsonConfig) {
       try {
-        mcpJsonAnalysis = await this.parallelOrchestrator.executeMCPJsonAnalysis(options.mcpJsonConfig);
+        const enhancedAnalysis = await this.parallelOrchestrator.executeMCPJsonAnalysis(options.mcpJsonConfig);
+        mcpJsonAnalysis = enhancedAnalysis;
+        dockerBehavioralAnalysis = (enhancedAnalysis as any).dockerBehavioralAnalysis;
+
         console.log(`MCP JSON analysis complete: ${mcpJsonAnalysis.risks.length} security risks identified`);
+        if (dockerBehavioralAnalysis && dockerBehavioralAnalysis.length > 0) {
+          const nativeDockerCount = dockerBehavioralAnalysis.filter((result: any) => !result.serverName.includes('-proxy-sandbox')).length;
+          const proxyServerCount = dockerBehavioralAnalysis.filter((result: any) => result.serverName.includes('-proxy-sandbox')).length;
+
+          if (nativeDockerCount > 0 && proxyServerCount > 0) {
+            console.log(`🐳 Docker behavioral analysis: ${nativeDockerCount} Docker servers + ${proxyServerCount} proxy servers analyzed with runtime behavior`);
+          } else if (nativeDockerCount > 0) {
+            console.log(`🐳 Docker behavioral analysis: ${nativeDockerCount} Docker servers analyzed with runtime behavior`);
+          } else {
+            console.log(`🔗 Proxy behavioral analysis: ${proxyServerCount} proxy servers analyzed in Docker sandbox isolation`);
+          }
+        }
       } catch (error) {
         throw new Error(`MCP JSON analysis failed: ${error}`);
       }
@@ -189,6 +205,11 @@ export class MCPSecurityScanner {
       mcpJsonAnalysis,
       parallelResults?.mcpPromptSecurityAnalysis
     );
+
+    // Add Docker behavioral analysis results to the result
+    if (dockerBehavioralAnalysis && dockerBehavioralAnalysis.length > 0) {
+      (result as any).dockerBehavioralAnalysis = dockerBehavioralAnalysis;
+    }
 
     console.log(`Scan complete in ${result.duration}ms - Overall risk: ${result.overallRisk.toUpperCase()}`);
 
