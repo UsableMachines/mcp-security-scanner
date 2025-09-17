@@ -21,6 +21,7 @@ export interface ScanOptions {
   timeout?: number;
   skipDependencyAnalysis?: boolean;
   skipBehavioralAnalysis?: boolean;
+  apiKey?: string; // API key for authenticated MCP servers
 }
 
 export interface ComprehensiveScanResult {
@@ -173,7 +174,12 @@ export class MCPSecurityScanner {
     let dockerBehavioralAnalysis: any[] | undefined;
     if (scanMode === 'json' && options.mcpJsonConfig) {
       try {
-        const enhancedAnalysis = await this.parallelOrchestrator.executeMCPJsonAnalysis(options.mcpJsonConfig);
+        // Check if API key is needed for Docker/remote servers before starting analysis
+        if (!options.apiKey) {
+          options.apiKey = await this.promptForApiKeyIfNeeded(options.mcpJsonConfig);
+        }
+
+        const enhancedAnalysis = await this.parallelOrchestrator.executeMCPJsonAnalysis(options.mcpJsonConfig, { apiKey: options.apiKey });
         mcpJsonAnalysis = enhancedAnalysis;
         dockerBehavioralAnalysis = (enhancedAnalysis as any).dockerBehavioralAnalysis;
 
@@ -392,6 +398,66 @@ export class MCPSecurityScanner {
     }
 
     return summary;
+  }
+
+  /**
+   * Check if API key is needed for Docker/remote servers and prompt user
+   */
+  private async promptForApiKeyIfNeeded(mcpJsonConfig: any): Promise<string | undefined> {
+    // Extract Docker configurations to check if any need authentication
+    const servers = mcpJsonConfig.mcpServers || {};
+    let needsApiKey = false;
+
+    for (const [serverName, serverConfig] of Object.entries(servers)) {
+      const config = serverConfig as any;
+      const env = config.env || {};
+
+      // Check if this server has environment variables that look like API keys with placeholder values
+      const hasApiKeyPlaceholder = Object.entries(env).some(([key, value]) => {
+        const keyUpper = key.toUpperCase();
+        const valueStr = String(value);
+        return (keyUpper.includes('API') && keyUpper.includes('KEY')) &&
+               (valueStr.includes('YOUR_') || valueStr.includes('PLACEHOLDER') || valueStr.includes('HERE'));
+      });
+
+      if (hasApiKeyPlaceholder) {
+        needsApiKey = true;
+        break;
+      }
+    }
+
+    if (!needsApiKey) {
+      return undefined;
+    }
+
+    // Prompt for API key
+    const readline = require('readline');
+    const rl = readline.createInterface({
+      input: process.stdin,
+      output: process.stdout
+    });
+
+    const question = (prompt: string): Promise<string> => {
+      return new Promise((resolve) => {
+        rl.question(prompt, resolve);
+      });
+    };
+
+    try {
+      console.log('\n🔑 API Key Required');
+      console.log('   Detected servers that need authentication');
+      const apiKey = await question('Enter API key: ');
+
+      if (apiKey.trim()) {
+        console.log('✅ API key provided');
+        return apiKey.trim();
+      } else {
+        console.log('⚠️  No API key provided - continuing without authentication');
+        return undefined;
+      }
+    } finally {
+      rl.close();
+    }
   }
 
   private combineRecommendations(

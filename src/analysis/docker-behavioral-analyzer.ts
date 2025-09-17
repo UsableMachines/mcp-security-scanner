@@ -158,55 +158,105 @@ export class DockerBehavioralAnalyzer {
   }
 
   /**
-   * Execute Docker MCP server and capture protocol interactions
+   * Execute Docker MCP server and capture protocol interactions using proper MCP client
    */
   private async captureDockerMCPProtocol(config: DockerMCPConfig): Promise<MCPProtocolData> {
-    const { exec } = require('child_process');
-    const { promisify } = require('util');
-    const execAsync = promisify(exec);
-
-    // Detect authentication requirements
-    const authInfo = this.detectAuthRequirement(config);
-    if (authInfo.requiresAuth) {
-      console.log(`🔐 Server "${config.serverName}" requires authentication`);
-      console.log(`   Method: ${authInfo.authMethod.toUpperCase()}`);
-      console.log(`   Service: ${authInfo.authContext.serviceName || 'Unknown'}`);
-      console.log(`   Auth Obfuscated: ${authInfo.authContext.isObfuscated ? 'YES' : 'NO'}`);
-      console.log(`   Headless Support: ${authInfo.authContext.supportsHeadlessAuth ? 'YES' : 'NO'}`);
-
-      await this.handleAuthentication(config, authInfo);
-    }
-
-    // Build Docker run command with proper MCP server setup
-    const dockerCmd = this.buildDockerMCPCommand(config);
+    const { Client } = require('@modelcontextprotocol/sdk/client/index.js');
+    const { StdioClientTransport } = require('@modelcontextprotocol/sdk/client/stdio.js');
 
     console.log(`🚀 Starting Docker MCP server: ${config.dockerImage}`);
-    console.log(`🔍 Command: ${dockerCmd}`);
+
+    // Build Docker command for MCP server
+    const dockerArgs = this.buildDockerMCPArgs(config);
+    console.log(`🔍 Docker command: docker ${dockerArgs.join(' ')}`);
+
+    let client: any = null;
 
     try {
-      // Use sandbox manager to execute the Docker MCP server
-      const sandboxResult = await this.sandboxManager.executeMCPServer(
-        dockerCmd,
-        undefined, // MCP config - will be handled via Docker
-        { timeout: config.timeout || 60 }
+      // Step 1: Create MCP client with stdio transport that will spawn the Docker process
+      const transport = new StdioClientTransport({
+        command: 'docker',
+        args: dockerArgs,
+        env: { ...process.env, ...config.environment }
+      });
+
+      client = new Client(
+        {
+          name: 'mcp-security-scanner',
+          version: '1.0.0'
+        },
+        {
+          capabilities: {
+            tools: {},
+            resources: {},
+            prompts: {}
+          }
+        }
       );
 
-      // Parse the sandbox result to extract MCP protocol data
-      return this.parseMCPProtocolFromSandboxResult(sandboxResult);
+      // Step 2: Connect and perform MCP handshake
+      console.log(`🤝 Establishing MCP connection to ${config.serverName}...`);
+      await client.connect(transport);
+
+      // Step 3: Discovery-only operations (no LLM, no tool execution)
+      console.log(`🔍 Discovering server capabilities...`);
+
+      const [toolsResult, resourcesResult, promptsResult] = await Promise.allSettled([
+        client.listTools(),
+        client.listResources(),
+        client.listPrompts()
+      ]);
+
+      // Step 4: Extract discovered capabilities
+      const tools = toolsResult.status === 'fulfilled' ? toolsResult.value.tools || [] : [];
+      const resources = resourcesResult.status === 'fulfilled' ? resourcesResult.value.resources || [] : [];
+      const prompts = promptsResult.status === 'fulfilled' ? promptsResult.value.prompts || [] : [];
+
+      console.log(`✅ Discovery complete: ${tools.length} tools, ${resources.length} resources, ${prompts.length} prompts`);
+
+      // Step 5: Get server info if available
+      let serverInfo: any;
+      try {
+        serverInfo = await client.getServerInfo?.() || { name: config.serverName };
+      } catch {
+        serverInfo = { name: config.serverName };
+      }
+
+      return {
+        serverInfo,
+        tools,
+        resources,
+        prompts,
+        executionLogs: [`MCP client connected successfully to ${config.serverName}`],
+        networkActivity: [], // Could be enhanced with network monitoring
+        fileSystemActivity: [] // Could be enhanced with filesystem monitoring
+      };
 
     } catch (error) {
-      console.warn(`Docker MCP execution failed for ${config.serverName}:`, error);
+      console.warn(`❌ MCP connection failed for ${config.serverName}:`, error);
 
-      // Return minimal protocol data for failed execution
+      // Return minimal protocol data for failed connection
       return {
         serverInfo: { name: config.serverName },
         tools: [],
         resources: [],
         prompts: [],
-        executionLogs: [error instanceof Error ? error.message : String(error)],
+        executionLogs: [
+          `MCP connection failed: ${error instanceof Error ? error.message : String(error)}`
+        ],
         networkActivity: [],
         fileSystemActivity: []
       };
+
+    } finally {
+      // Step 6: Cleanup - close client connection
+      try {
+        if (client) {
+          await client.close();
+        }
+      } catch (error) {
+        console.warn('Error closing MCP client:', error);
+      }
     }
   }
 
@@ -258,7 +308,7 @@ export class DockerBehavioralAnalyzer {
   }
 
   /**
-   * Detect service-specific authentication methods
+   * Detect authentication requirements using pattern-based approach
    */
   private detectServiceAuthMethod(serverName: string, remoteUrl?: string, proxyPackage?: string): {
     requiresAuth: boolean;
@@ -267,83 +317,23 @@ export class DockerBehavioralAnalyzer {
     authUrl?: string;
     hasApiKeyFallback: boolean;
   } {
-    // Service-specific auth patterns
-    const servicePatterns = [
-      {
-        names: ['linear'],
-        domains: ['linear.app'],
-        authMethod: 'oauth' as const,
-        authUrl: 'https://linear.app/settings/api',
-        hasApiKeyFallback: true, // Linear also supports API keys
-        requiresAuth: true
-      },
-      {
-        names: ['github'],
-        domains: ['github.com', 'api.github.com'],
-        authMethod: 'bearer_token' as const,
-        authUrl: 'https://github.com/settings/tokens',
-        hasApiKeyFallback: true,
-        requiresAuth: true
-      },
-      {
-        names: ['gitlab'],
-        domains: ['gitlab.com'],
-        authMethod: 'bearer_token' as const,
-        authUrl: 'https://gitlab.com/-/profile/personal_access_tokens',
-        hasApiKeyFallback: true,
-        requiresAuth: true
-      },
-      {
-        names: ['slack'],
-        domains: ['slack.com'],
-        authMethod: 'oauth' as const,
-        hasApiKeyFallback: false, // Slack requires OAuth
-        requiresAuth: true
-      },
-      {
-        names: ['anthropic'],
-        domains: ['anthropic.com'],
-        authMethod: 'api_key' as const,
-        authUrl: 'https://console.anthropic.com/settings/keys',
-        hasApiKeyFallback: true,
-        requiresAuth: true
-      },
-      {
-        names: ['openai'],
-        domains: ['openai.com', 'api.openai.com'],
-        authMethod: 'api_key' as const,
-        authUrl: 'https://platform.openai.com/api-keys',
-        hasApiKeyFallback: true,
-        requiresAuth: true
-      }
-    ];
-
-    // Check by server name
-    for (const pattern of servicePatterns) {
-      if (pattern.names.some(name => serverName.includes(name))) {
-        return {
-          requiresAuth: pattern.requiresAuth,
-          authMethod: pattern.authMethod,
-          serviceName: pattern.names[0],
-          authUrl: pattern.authUrl,
-          hasApiKeyFallback: pattern.hasApiKeyFallback
-        };
-      }
+    // Pattern-based detection - no hardcoding
+    // If we have a remote URL, it likely needs authentication
+    if (remoteUrl && remoteUrl.startsWith('https://')) {
+      return {
+        requiresAuth: true,
+        authMethod: 'unknown', // Will be determined by env var analysis
+        hasApiKeyFallback: true
+      };
     }
 
-    // Check by remote URL domain
-    if (remoteUrl) {
-      for (const pattern of servicePatterns) {
-        if (pattern.domains.some(domain => remoteUrl.includes(domain))) {
-          return {
-            requiresAuth: pattern.requiresAuth,
-            authMethod: pattern.authMethod,
-            serviceName: pattern.names[0],
-            authUrl: pattern.authUrl,
-            hasApiKeyFallback: pattern.hasApiKeyFallback
-          };
-        }
-      }
+    // Any proxy package suggests remote authentication
+    if (proxyPackage) {
+      return {
+        requiresAuth: true,
+        authMethod: 'unknown', // Will be determined by env var analysis
+        hasApiKeyFallback: true
+      };
     }
 
     return {
@@ -614,17 +604,28 @@ export class DockerBehavioralAnalyzer {
   }
 
   private async promptApiKey(config: DockerMCPConfig, authInfo: ReturnType<typeof this.detectAuthRequirement>, question: (prompt: string) => Promise<string>): Promise<void> {
-    console.log(`\n🔑 API Key Authentication`);
-    const apiKey = await question('Enter API key (or press Enter to skip): ');
+    console.log(`\n🔑 API Key Required`);
+    if (authInfo.authContext.authUrl) {
+      console.log(`   Get your API key from: ${authInfo.authContext.authUrl}`);
+    }
+
+    // Find the environment variable that needs the API key
+    const envVars = Object.keys(config.environment || {});
+    const apiKeyVar = envVars.find(varName =>
+      varName.toUpperCase().includes('API') && varName.toUpperCase().includes('KEY')
+    );
+
+    const keyName = apiKeyVar || 'API_KEY';
+    console.log(`   Variable: ${keyName}`);
+
+    const apiKey = await question('Enter API key: ');
 
     if (apiKey.trim()) {
-      const keyName = authInfo.authContext.serviceName ?
-        `${authInfo.authContext.serviceName.toUpperCase()}_API_KEY` : 'API_KEY';
       config.environment = config.environment || {};
       config.environment[keyName] = apiKey.trim();
-      console.log(`✅ API key configured as ${keyName}`);
+      console.log(`✅ API key configured`);
     } else {
-      console.log(`⚠️  Running without authentication - server may fail to connect`);
+      console.log(`⚠️  No API key provided - running without authentication`);
     }
   }
 
@@ -659,26 +660,40 @@ export class DockerBehavioralAnalyzer {
   }
 
   private async promptGenericAuth(config: DockerMCPConfig, authInfo: ReturnType<typeof this.detectAuthRequirement>, question: (prompt: string) => Promise<string>): Promise<void> {
-    console.log(`\n🔧 Generic Authentication`);
+    console.log(`\n🔧 Authentication Required`);
     console.log(`   Detected patterns: ${authInfo.authContext.envVarPatterns.join(', ')}`);
 
-    const hasAuth = await question('Provide authentication credentials? (y/n): ');
-    if (hasAuth.toLowerCase() === 'y' || hasAuth.toLowerCase() === 'yes') {
-      const keyName = await question('Environment variable name: ');
-      const keyValue = await question('Value: ');
+    const keyName = await question('Environment variable name: ');
+    const keyValue = await question('Value: ');
 
-      if (keyName.trim() && keyValue.trim()) {
-        config.environment = config.environment || {};
-        config.environment[keyName.trim()] = keyValue.trim();
-        console.log(`✅ Credential configured as ${keyName.trim()}`);
-      }
+    if (keyName.trim() && keyValue.trim()) {
+      config.environment = config.environment || {};
+      config.environment[keyName.trim()] = keyValue.trim();
+      console.log(`✅ Credential configured as ${keyName.trim()}`);
     } else {
-      console.log(`⚠️  Running without authentication - server may fail to connect`);
+      console.log(`⚠️  No credentials provided - running without authentication`);
     }
   }
 
   /**
-   * Build Docker run command for MCP server execution
+   * Build Docker args array for MCP server execution (used with spawn)
+   */
+  private buildDockerMCPArgs(config: DockerMCPConfig): string[] {
+    const args = ['run', '--rm', '-i'];
+
+    // Add environment variables
+    Object.entries(config.environment || {}).forEach(([key, value]) => {
+      args.push('-e', `${key}=${value}`);
+    });
+
+    // Add the docker image
+    args.push(config.dockerImage);
+
+    return args;
+  }
+
+  /**
+   * Build Docker run command for MCP server execution (legacy - for sandbox manager)
    */
   private buildDockerMCPCommand(config: DockerMCPConfig): string {
     const dockerArgs = config.dockerArgs || [];

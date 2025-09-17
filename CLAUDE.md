@@ -2,11 +2,18 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## CRITICAL RULES (NON-NEGOTIABLE)
+
+### NEVER MAKE ARCHITECTURAL DECISIONS WITHOUT USER PERMISSION
+### NEVER GIT ADD, COMMIT, OR PUSH WITHOUT EXPLICIT USER PERMISSION
+
 ## MCP Security Scanner
 
 This is a TypeScript-based security scanner for MCP (Model Context Protocol) servers, designed for kindo.ai internal use and potential customer-facing features. The scanner evaluates MCP servers through both static code analysis and dynamic behavioral analysis in sandboxed environments.
 
 ## Development Commands
+
+### It is NEVER node to test the cli file, it is always yarn node
 
 ```bash
 # Development

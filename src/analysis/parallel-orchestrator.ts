@@ -284,13 +284,18 @@ export class ParallelAnalysisOrchestrator {
   /**
    * Execute enhanced MCP JSON analysis with parallel Docker behavioral analysis
    */
-  async executeMCPJsonAnalysis(mcpJsonConfig: any): Promise<MCPJsonAnalysis & { dockerBehavioralAnalysis?: DockerBehavioralAnalysisResult[] }> {
+  async executeMCPJsonAnalysis(mcpJsonConfig: any, options: { apiKey?: string } = {}): Promise<MCPJsonAnalysis & { dockerBehavioralAnalysis?: DockerBehavioralAnalysisResult[] }> {
     console.log('🔍 Running enhanced MCP JSON configuration analysis...');
     const startTime = Date.now();
 
     try {
       // Step 1: Extract Docker configurations from JSON
-      const dockerConfigs = this.extractDockerConfigurations(mcpJsonConfig);
+      let dockerConfigs = this.extractDockerConfigurations(mcpJsonConfig);
+
+      // Step 1.5: Inject API key if provided via CLI
+      if (options.apiKey) {
+        dockerConfigs = this.injectApiKeyIntoConfigs(dockerConfigs, options.apiKey);
+      }
 
       // Step 2: Run analyses in parallel
       const tasks = [];
@@ -513,6 +518,175 @@ export class ParallelAnalysisOrchestrator {
     // Fallback: first non-flag argument
     const nonFlagArg = args.find(arg => !arg.startsWith('-'));
     return nonFlagArg || 'unknown';
+  }
+
+  /**
+   * Inject CLI-provided API key into Docker configurations using pattern-based detection
+   */
+  private injectApiKeyIntoConfigs(dockerConfigs: DockerMCPConfig[], apiKey: string): DockerMCPConfig[] {
+    console.log(`🔑 Injecting API key into ${dockerConfigs.length} Docker configurations...`);
+
+    return dockerConfigs.map(config => {
+      if (!config.environment) {
+        return config;
+      }
+
+      const updatedEnvironment = { ...config.environment };
+      let keyInjected = false;
+      let injectionCount = 0;
+
+      // Check each environment variable for patterns
+      Object.entries(updatedEnvironment).forEach(([envKey, envValue]) => {
+        const authType = this.detectAuthType(envKey, String(envValue || ''));
+
+        if (authType.needsReplacement) {
+          console.log(`🔑 Detected ${authType.type} pattern: ${envKey} (was: "${envValue}")`);
+
+          if (authType.type === 'api_key' || authType.type === 'generic_token') {
+            updatedEnvironment[envKey] = apiKey;
+            injectionCount++;
+            keyInjected = true;
+          } else {
+            console.log(`⚠️  Skipping ${envKey}: detected as ${authType.type} (requires different auth method)`);
+          }
+        }
+      });
+
+      if (keyInjected) {
+        console.log(`✅ Injected API key into ${injectionCount} environment variables for: ${config.serverName}`);
+        return {
+          ...config,
+          environment: updatedEnvironment
+        };
+      } else {
+        console.log(`ℹ️  No API key injection needed for: ${config.serverName}`);
+      }
+
+      return config;
+    });
+  }
+
+  /**
+   * Detect authentication type and whether it needs replacement
+   */
+  private detectAuthType(envKey: string, envValue: string): {
+    type: 'api_key' | 'bearer_token' | 'jwt_token' | 'oauth_token' | 'enterprise_auth' | 'generic_token' | 'unknown';
+    needsReplacement: boolean;
+    confidence: number;
+  } {
+    const key = envKey.toLowerCase();
+    const value = envValue?.toLowerCase() || '';
+
+    // Define authentication patterns
+    const patterns = {
+      api_key: {
+        keyPatterns: [
+          /(?:api[_-]?key|[a-z]+[_-]?(?:api[_-]?)?key|secret)/i,
+          /(?:access[_-]?key|service[_-]?key)/i
+        ],
+        excludePatterns: [
+          /bearer/i, /oauth/i, /jwt/i, /saml/i, /ldap/i
+        ]
+      },
+      bearer_token: {
+        keyPatterns: [
+          /bearer[_-]?token/i,
+          /authorization/i,
+          /auth[_-]?token/i
+        ],
+        excludePatterns: [
+          /api[_-]?key/i, /secret/i
+        ]
+      },
+      jwt_token: {
+        keyPatterns: [
+          /jwt[_-]?token/i,
+          /id[_-]?token/i,
+          /refresh[_-]?token/i
+        ],
+        excludePatterns: []
+      },
+      oauth_token: {
+        keyPatterns: [
+          /oauth[_-]?token/i,
+          /access[_-]?token/i,
+          /client[_-]?(?:id|secret)/i
+        ],
+        excludePatterns: [
+          /api[_-]?key/i, /jwt/i
+        ]
+      },
+      enterprise_auth: {
+        keyPatterns: [
+          /saml[_-]?token/i,
+          /ldap/i,
+          /ad[_-]?(?:token|auth)/i,
+          /sso[_-]?token/i,
+          /kerberos/i
+        ],
+        excludePatterns: []
+      },
+      generic_token: {
+        keyPatterns: [
+          /token/i
+        ],
+        excludePatterns: [
+          /bearer/i, /oauth/i, /jwt/i, /saml/i, /refresh/i, /id[_-]?token/i
+        ]
+      }
+    };
+
+    // Placeholder patterns that indicate replacement is needed
+    const placeholderPatterns = [
+      'your_api_key_here',
+      'your_key_here',
+      'api_key_here',
+      'replace_with_api_key',
+      'insert_api_key',
+      '<api_key>',
+      '{{api_key}}',
+      '${api_key}',
+      'todo',
+      'changeme',
+      'placeholder',
+      'example',
+      'xxx',
+      '',  // Empty string
+      null,
+      undefined
+    ];
+
+    const needsReplacement = placeholderPatterns.includes(value) ||
+                           value.length === 0 ||
+                           /^(your|insert|replace|todo|change|example|xxx|placeholder)/i.test(value);
+
+    // Detect auth type with confidence scoring
+    for (const [authType, { keyPatterns, excludePatterns }] of Object.entries(patterns)) {
+      // Check if key matches any exclude patterns first
+      if (excludePatterns.some(pattern => pattern.test(key))) {
+        continue;
+      }
+
+      // Check if key matches any key patterns
+      const matchCount = keyPatterns.reduce((count, pattern) =>
+        count + (pattern.test(key) ? 1 : 0), 0
+      );
+
+      if (matchCount > 0) {
+        const confidence = Math.min(matchCount / keyPatterns.length, 1.0);
+        return {
+          type: authType as any,
+          needsReplacement,
+          confidence
+        };
+      }
+    }
+
+    return {
+      type: 'unknown',
+      needsReplacement,
+      confidence: 0
+    };
   }
 
   /**

@@ -29,6 +29,7 @@ Options:
   --json JSON        MCP configuration JSON string (for black box analysis)
   --mode MODE        Analysis mode: static, dynamic, hybrid (default: auto)
   --timeout MS       Timeout in milliseconds (default: 300000)
+  --api-key KEY      API key for authenticated MCP servers (will auto-detect service)
   --help             Show this help
 
 Examples:
@@ -37,6 +38,9 @@ Examples:
 
   # Black box MCP JSON analysis
   node mcp_scan_cli.js --json '{"mcpServers":{"linear":{"command":"npx","args":["-y","mcp-remote","https://mcp.linear.app/sse"]}}}'
+
+  # Docker MCP server with API key
+  node mcp_scan_cli.js --json '{"mcpServers":{"brave":{"command":"docker","args":["run","-i","--rm","-e","BRAVE_API_KEY","mcp/brave-search"],"env":{"BRAVE_API_KEY":"YOUR_API_KEY_HERE"}}}}' --api-key BSA-xyz123...
 
   # Dynamic analysis of local server
   node mcp_scan_cli.js /path/to/mcp-server.js
@@ -73,6 +77,13 @@ Examples:
         break;
       case '--timeout':
         options.timeout = parseInt(args[++i]);
+        break;
+      case '--api-key':
+        options.apiKey = args[++i];
+        if (!options.apiKey) {
+          console.error('--api-key requires a value');
+          process.exit(1);
+        }
         break;
       case '--help':
       case '-h':
