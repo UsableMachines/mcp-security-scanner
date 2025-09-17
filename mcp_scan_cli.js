@@ -241,6 +241,35 @@ Examples:
       console.log(`   ⚠️  Skipped (static-only analysis mode)`);
     }
 
+    // MCP Prompt Security Analysis (new)
+    if (result.mcpPromptSecurityAnalysis) {
+      console.log(`\n🛡️  MCP PROMPT SECURITY ANALYSIS:`);
+      console.log(`   Server Name:       ${result.mcpPromptSecurityAnalysis.serverName}`);
+      console.log(`   Tools Analyzed:    ${result.mcpPromptSecurityAnalysis.totalTools}`);
+      console.log(`   Prompt Risks:      ${result.mcpPromptSecurityAnalysis.risks.length}`);
+
+      if (result.mcpPromptSecurityAnalysis.risks.length > 0) {
+        console.log(`\n⚠️  MCP PROMPT SECURITY RISKS IDENTIFIED:`);
+        result.mcpPromptSecurityAnalysis.risks.forEach((risk, i) => {
+          console.log(`   ${i + 1}. ${risk.type.replace(/_/g, ' ').toUpperCase()} (${risk.severity.toUpperCase()})`);
+          console.log(`      ${risk.description}`);
+          if (risk.toolName) {
+            console.log(`      Tool: ${risk.toolName}`);
+          }
+          if (risk.evidence && risk.evidence.length > 0) {
+            console.log(`      Evidence: ${risk.evidence.join(', ')}`);
+          }
+          console.log(`      Confidence: ${Math.round(risk.confidence * 100)}%`);
+        });
+      }
+
+      console.log(`\n📝 MCP PROMPT ANALYSIS SUMMARY:`);
+      console.log(`   ${result.mcpPromptSecurityAnalysis.summary}`);
+    } else {
+      console.log(`\n🛡️  MCP PROMPT SECURITY ANALYSIS:`);
+      console.log(`   ⚠️  Skipped (no MCP server configuration found)`);
+    }
+
     if (result.mcpJsonAnalysis) {
       console.log(`\n🔍 MCP JSON CONFIGURATION ANALYSIS:`);
       console.log(`   Security Risks:        ${result.mcpJsonAnalysis.risks.length}`);

@@ -49,6 +49,22 @@ export interface ComprehensiveScanResult {
   // Black box MCP JSON analysis results
   mcpJsonAnalysis?: MCPJsonAnalysis;
 
+  // MCP prompt security analysis results (new)
+  mcpPromptSecurityAnalysis?: {
+    serverName: string;
+    totalTools: number;
+    risks: Array<{
+      type: string;
+      severity: string;
+      description: string;
+      evidence: string[];
+      toolName?: string;
+      context: string;
+      confidence: number;
+    }>;
+    summary: string;
+  };
+
   // Combined assessment
   overallRisk: 'critical' | 'high' | 'medium' | 'low';
   summary: string;
@@ -119,6 +135,30 @@ export class MCPSecurityScanner {
       }
     }
 
+    // MCP Prompt Security Analysis (new - analyze MCP server configurations for prompt-level vulnerabilities)
+    let mcpPromptSecurityAnalysis;
+    if ((scanMode === 'static' || scanMode === 'hybrid') && options.sourceCodeUrl) {
+      console.log('🔍 Performing MCP prompt security analysis...');
+      try {
+        mcpPromptSecurityAnalysis = await this.performMCPPromptSecurityAnalysis();
+        console.log(`MCP prompt security analysis complete: ${mcpPromptSecurityAnalysis?.risks.length || 0} prompt security risks found`);
+      } catch (error) {
+        console.warn('MCP prompt security analysis failed, continuing without prompt security analysis:', error);
+        mcpPromptSecurityAnalysis = undefined;
+      }
+
+      // Clean up the Docker volume now that all static analysis is complete
+      try {
+        const sandboxProvider = await this.sandboxManager.getProvider();
+        if (sandboxProvider && typeof (sandboxProvider as any).cleanupCurrentVolume === 'function') {
+          await (sandboxProvider as any).cleanupCurrentVolume();
+          console.log('Docker volume cleanup complete');
+        }
+      } catch (error) {
+        console.warn('Docker volume cleanup failed:', error);
+      }
+    }
+
     // Dynamic Analysis (when MCP server is available)
     let behavioralAnalysis: SecurityAnalysis | undefined;
     if (!options.skipBehavioralAnalysis && scanMode !== 'json') {
@@ -160,7 +200,8 @@ export class MCPSecurityScanner {
       dependencyAnalysis,
       sourceCodeAnalysis,
       behavioralAnalysis,
-      mcpJsonAnalysis
+      mcpJsonAnalysis,
+      mcpPromptSecurityAnalysis
     );
 
     console.log(`Scan complete in ${result.duration}ms - Overall risk: ${result.overallRisk.toUpperCase()}`);
@@ -437,10 +478,8 @@ The repository is available in a Docker volume "${volumeName}" mounted at /src. 
       };
 
     } finally {
-      // Clean up the Docker volume now that we're done with all analysis
-      if (typeof (sandboxProvider as any).cleanupCurrentVolume === 'function') {
-        await (sandboxProvider as any).cleanupCurrentVolume();
-      }
+      // Note: Docker volume cleanup is now handled after all static analysis is complete
+      // This allows MCP prompt security analysis to use the same volume
     }
   }
 
@@ -508,13 +547,204 @@ The repository is available in a Docker volume "${volumeName}" mounted at /src. 
     }
   }
 
+  /**
+   * Perform MCP prompt security analysis by discovering and analyzing MCP server configurations
+   */
+  private async performMCPPromptSecurityAnalysis(): Promise<{
+    serverName: string;
+    totalTools: number;
+    risks: Array<{
+      type: string;
+      severity: string;
+      description: string;
+      evidence: string[];
+      toolName?: string;
+      context: string;
+      confidence: number;
+    }>;
+    summary: string;
+  } | undefined> {
+    const sandboxProvider = await this.sandboxManager.getProvider();
+    if (!sandboxProvider) {
+      throw new Error('No sandbox provider available for MCP prompt security analysis');
+    }
+
+    const volumeName = (sandboxProvider as any)._currentVolume;
+    if (!volumeName) {
+      throw new Error('No Docker volume available for MCP prompt security analysis');
+    }
+
+    try {
+      // First, discover MCP server configuration in the repository
+      const mcpConfig = await this.discoverMCPConfiguration(volumeName);
+
+      if (!mcpConfig) {
+        console.log('No MCP server configuration found in repository');
+        return undefined;
+      }
+
+      console.log(`Found MCP server configuration with ${mcpConfig.tools?.length || 0} tools`);
+
+      // Analyze the discovered MCP configuration for prompt-level vulnerabilities
+      const promptAnalysis = await this.aiAnalyzer.analyzeMCPPromptSecurity(mcpConfig);
+
+      return {
+        serverName: promptAnalysis.serverName,
+        totalTools: promptAnalysis.totalTools,
+        risks: promptAnalysis.risks.map(risk => ({
+          type: risk.type,
+          severity: risk.severity,
+          description: risk.description,
+          evidence: risk.evidence,
+          toolName: risk.toolName,
+          context: risk.context,
+          confidence: risk.confidence
+        })),
+        summary: promptAnalysis.summary
+      };
+
+    } catch (error) {
+      throw new Error(`MCP prompt security analysis failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  /**
+   * Discover MCP server configuration from the repository
+   */
+  private async discoverMCPConfiguration(volumeName: string): Promise<{
+    name: string;
+    tools?: Array<{
+      name: string;
+      description?: string;
+      inputSchema?: any;
+    }>;
+  } | null> {
+    const { exec } = require('child_process');
+    const { promisify } = require('util');
+    const execAsync = promisify(exec);
+
+    try {
+      // Look for common MCP server configuration patterns
+      let projectName = 'unknown-mcp-server';
+      const tools: Array<{ name: string; description?: string; inputSchema?: any }> = [];
+
+      // Try to get project name from package.json
+      try {
+        const { stdout: packageJson } = await execAsync(`docker run --rm -v ${volumeName}:/src alpine:latest cat /src/package.json`);
+        const pkg = JSON.parse(packageJson);
+        projectName = pkg.name || 'unknown-mcp-server';
+      } catch {
+        // package.json not found or invalid, keep default name
+      }
+
+      // Search for MCP tool definitions in common patterns
+      const searchPatterns = [
+        // TypeScript/JavaScript MCP servers
+        'server\\.setRequestHandler.*tools/list',
+        'tools\\.set\\(',
+        'name:.*description:',
+        'inputSchema:',
+        // Python MCP servers
+        '@server\\.list_tools',
+        'def.*tool.*\\(',
+        'Tool\\(',
+        // Generic patterns
+        'mcp.*server',
+        'tool.*handler',
+        'resource.*handler'
+      ];
+
+      for (const pattern of searchPatterns) {
+        try {
+          const { stdout } = await execAsync(
+            `docker run --rm -v ${volumeName}:/src alpine:latest sh -c "find /src -type f \\( -name '*.js' -o -name '*.ts' -o -name '*.py' \\) -exec grep -l '${pattern}' {} \\; | head -5"`
+          );
+
+          if (stdout.trim()) {
+            // Found MCP-related files, try to extract tool configurations
+            const files = stdout.trim().split('\n');
+
+            for (const file of files.slice(0, 2)) { // Analyze first 2 files to avoid overwhelming
+              try {
+                const { stdout: content } = await execAsync(
+                  `docker run --rm -v ${volumeName}:/src alpine:latest cat "${file}"`
+                );
+
+                // Basic pattern extraction for tool definitions
+                const toolMatches = content.match(/name\s*:\s*["'`]([^"'`]+)["'`][\s\S]*?description\s*:\s*["'`]([^"'`]*)["'`]/g);
+
+                if (toolMatches) {
+                  for (const match of toolMatches.slice(0, 10)) { // Limit to 10 tools per file
+                    const nameMatch = match.match(/name\s*:\s*["'`]([^"'`]+)["'`]/);
+                    const descMatch = match.match(/description\s*:\s*["'`]([^"'`]*)["'`]/);
+
+                    if (nameMatch) {
+                      tools.push({
+                        name: nameMatch[1],
+                        description: descMatch ? descMatch[1] : 'No description provided',
+                        inputSchema: { type: 'object', properties: {} } // Basic schema
+                      });
+                    }
+                  }
+                }
+              } catch {
+                // Skip files that can't be read
+                continue;
+              }
+            }
+
+            break; // Stop after first successful pattern match
+          }
+        } catch {
+          // Continue to next pattern
+          continue;
+        }
+      }
+
+      // If we found tools, return the configuration
+      if (tools.length > 0) {
+        return {
+          name: projectName,
+          tools
+        };
+      }
+
+      // If no specific tools found but we detected MCP patterns, create a minimal config
+      try {
+        const { stdout } = await execAsync(
+          `docker run --rm -v ${volumeName}:/src alpine:latest sh -c "find /src -name '*.js' -o -name '*.ts' -o -name '*.py' | xargs grep -l 'mcp.*server\\|Model Context Protocol' | head -1"`
+        );
+
+        if (stdout.trim()) {
+          // Found MCP server but no specific tools, create placeholder
+          return {
+            name: projectName,
+            tools: [{
+              name: 'unknown-tool',
+              description: 'MCP server detected but specific tool definitions not found',
+              inputSchema: { type: 'object', properties: {} }
+            }]
+          };
+        }
+      } catch {
+        // No MCP patterns found
+      }
+
+      return null; // No MCP server configuration found
+
+    } catch (error) {
+      throw new Error(`Failed to discover MCP configuration: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
   private generateComprehensiveResult(
     scanMode: ScanMode,
     startTime: number,
     dependencyAnalysis?: DependencyAnalysisResult,
     sourceCodeAnalysis?: ComprehensiveScanResult['sourceCodeAnalysis'],
     behavioralAnalysis?: SecurityAnalysis,
-    mcpJsonAnalysis?: MCPJsonAnalysis
+    mcpJsonAnalysis?: MCPJsonAnalysis,
+    mcpPromptSecurityAnalysis?: ComprehensiveScanResult['mcpPromptSecurityAnalysis']
   ): ComprehensiveScanResult {
     // For static-only mode, behavioral analysis is optional
     // For JSON mode, MCP JSON analysis is required
@@ -531,7 +761,8 @@ The repository is available in a Docker volume "${volumeName}" mounted at /src. 
       dependencyAnalysis,
       sourceCodeAnalysis,
       behavioralAnalysis,
-      mcpJsonAnalysis
+      mcpJsonAnalysis,
+      mcpPromptSecurityAnalysis
     );
 
     // Generate comprehensive summary
@@ -560,6 +791,7 @@ The repository is available in a Docker volume "${volumeName}" mounted at /src. 
       sourceCodeAnalysis,
       behavioralAnalysis,
       mcpJsonAnalysis,
+      mcpPromptSecurityAnalysis,
       overallRisk,
       summary,
       recommendations
@@ -570,7 +802,8 @@ The repository is available in a Docker volume "${volumeName}" mounted at /src. 
     dependencyAnalysis?: DependencyAnalysisResult,
     sourceCodeAnalysis?: ComprehensiveScanResult['sourceCodeAnalysis'],
     behavioralAnalysis?: SecurityAnalysis,
-    mcpJsonAnalysis?: MCPJsonAnalysis
+    mcpJsonAnalysis?: MCPJsonAnalysis,
+    mcpPromptSecurityAnalysis?: ComprehensiveScanResult['mcpPromptSecurityAnalysis']
   ): 'critical' | 'high' | 'medium' | 'low' {
     const riskLevels: Array<'critical' | 'high' | 'medium' | 'low'> = [];
 
@@ -601,6 +834,17 @@ The repository is available in a Docker volume "${volumeName}" mounted at /src. 
       if (hasCritical) riskLevels.push('critical');
       else if (hasHigh) riskLevels.push('high');
       else if (sourceCodeAnalysis.vulnerabilities.length > 0) riskLevels.push('medium');
+      else riskLevels.push('low');
+    }
+
+    // MCP prompt security analysis risk
+    if (mcpPromptSecurityAnalysis) {
+      const hasCritical = mcpPromptSecurityAnalysis.risks.some(r => r.severity === 'critical');
+      const hasHigh = mcpPromptSecurityAnalysis.risks.some(r => r.severity === 'high');
+
+      if (hasCritical) riskLevels.push('critical');
+      else if (hasHigh) riskLevels.push('high');
+      else if (mcpPromptSecurityAnalysis.risks.length > 0) riskLevels.push('medium');
       else riskLevels.push('low');
     }
 

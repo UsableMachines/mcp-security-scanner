@@ -5,18 +5,22 @@
 import { z } from 'zod';
 import { AIRouter, AIMessage } from '../services/ai-router';
 import type { SandboxResult } from '../sandbox/sandbox-provider';
+import { MCPPromptSecurityAnalyzer, type PromptSecurityAnalysisResult, type MCPServer } from './mcp-prompt-security-analyzer';
 
 // Security analysis schemas
 const SecurityRiskSchema = z.object({
   type: z.enum([
     'command_injection',
-    'credential_exposure', 
+    'credential_exposure',
     'privilege_escalation',
     'data_exfiltration',
     'network_abuse',
     'prompt_injection',
     'authentication_bypass',
-    'tool_poisoning'
+    'tool_poisoning',
+    'tool_shadowing',
+    'cross_origin_violation',
+    'sensitive_file_access'
   ]),
   severity: z.enum(['critical', 'high', 'medium', 'low']),
   description: z.string(),
@@ -60,12 +64,14 @@ export interface AIAnalyzerConfig {
 
 export class AIAnalyzer {
   private aiRouter: AIRouter;
+  private promptSecurityAnalyzer: MCPPromptSecurityAnalyzer;
   private isInitialized = false;
 
   constructor(private config: AIAnalyzerConfig) {
     this.aiRouter = new AIRouter({
       preferredProvider: config.aiProvider || 'anthropic'
     });
+    this.promptSecurityAnalyzer = new MCPPromptSecurityAnalyzer();
   }
 
   async initialize(): Promise<void> {
@@ -121,6 +127,47 @@ export class AIAnalyzer {
     }
   }
 
+  /**
+   * Analyze MCP server for prompt-level security vulnerabilities
+   */
+  async analyzeMCPPromptSecurity(mcpServer: MCPServer): Promise<PromptSecurityAnalysisResult> {
+    console.log(`🔍 Running MCP prompt security analysis for server: ${mcpServer.name}`);
+
+    // Run pattern-based analysis first
+    const patternAnalysis = await this.promptSecurityAnalyzer.analyzeMCPServer(mcpServer);
+
+    // If AI analysis is available, enhance with AI insights
+    if (this.isInitialized) {
+      try {
+        const aiPrompt = this.promptSecurityAnalyzer.generateAIAnalysisPrompt(mcpServer);
+        const aiResponse = await this.aiRouter.createCompletion([
+          { role: 'user', content: aiPrompt }
+        ], {
+          temperature: 0.2,
+          maxTokens: 2000
+        });
+
+        // Parse AI response and merge with pattern analysis
+        const aiInsights = this.parseAIPromptSecurityResponse(aiResponse.content);
+
+        // Enhance confidence scores and add AI-detected risks
+        for (const risk of patternAnalysis.risks) {
+          if (aiInsights.confirmsRisk(risk)) {
+            risk.aiConfidence = aiInsights.getConfidence(risk);
+          }
+        }
+
+        // Add any additional risks identified by AI
+        patternAnalysis.risks.push(...aiInsights.additionalRisks);
+
+      } catch (error) {
+        console.warn('AI-enhanced prompt analysis failed, using pattern-based analysis only:', error);
+      }
+    }
+
+    return patternAnalysis;
+  }
+
   async analyzeSourceCodeSecurity(sourceCode: string): Promise<{
     vulnerabilities: Array<{
       type: string;
@@ -148,19 +195,26 @@ ${sourceCode.length > 12000 ? '\n... (truncated for analysis)' : ''}
 - Unsafe command execution
 - File system access patterns
 
-### 2. AUTHENTICATION & AUTHORIZATION
+### 2. MCP PROMPT SECURITY (NEW - MCP Shield patterns)
+- Tool descriptions containing hidden instructions ("don't tell", "hide this", <secret>)
+- Tool shadowing attempts ("override behavior", "replace tool")
+- Data exfiltration via suspicious parameters ("notes", "feedback", "context")
+- Cross-origin violations (references to other MCP servers)
+- Sensitive file access patterns in tool descriptions
+
+### 3. AUTHENTICATION & AUTHORIZATION
 - Session validation weaknesses
 - API key handling security
 - Bypass vulnerabilities
 - Missing authorization checks
 
-### 3. KINDO DEPLOYMENT RISKS
+### 4. KINDO DEPLOYMENT RISKS
 - Hardcoded secrets exposure
 - External API security
 - Resource consumption vulnerabilities
 - Multi-tenant isolation issues
 
-### 4. PRODUCTION SECURITY
+### 5. PRODUCTION SECURITY
 - Error information disclosure
 - Logging of sensitive data
 - Input validation bypasses
@@ -172,18 +226,18 @@ ${sourceCode.length > 12000 ? '\n... (truncated for analysis)' : ''}
 - MEDIUM: Info disclosure, DoS potential
 - LOW: Configuration improvements
 
-Return structured JSON:
+Return structured JSON (include MCP-specific vulnerability types):
 {
   "vulnerabilities": [
     {
-      "type": "SPECIFIC_VULNERABILITY_TYPE",
+      "type": "command_injection|credential_exposure|privilege_escalation|tool_poisoning|tool_shadowing|cross_origin_violation|sensitive_file_access|data_exfiltration|network_abuse|prompt_injection|authentication_bypass",
       "severity": "critical|high|medium|low",
       "line": line_number,
       "description": "detailed security impact and attack vector",
       "code": "actual vulnerable code snippet"
     }
   ],
-  "suggestions": ["specific actionable remediation steps"]
+  "suggestions": ["specific actionable remediation steps focused on MCP security"]
 }`;
 
     try {
@@ -375,6 +429,33 @@ KNOWN MCP SECURITY ISSUES TO FOCUS ON:
         'Add comprehensive logging and audit trails'
       ],
       summary: `Behavioral analysis completed: ${risks.length} security issue(s) identified with ${overallRisk.toUpperCase()} overall risk. ${hasCritical || hasHigh ? 'Immediate security review required.' : 'Regular monitoring recommended.'} Full source code analysis strongly recommended for comprehensive assessment.`
+    };
+  }
+
+  /**
+   * Parse AI response for prompt security analysis
+   */
+  private parseAIPromptSecurityResponse(aiResponse: string): {
+    confirmsRisk: (risk: any) => boolean;
+    getConfidence: (risk: any) => number;
+    additionalRisks: any[];
+  } {
+    // Simple implementation - in production this would be more sophisticated
+    const lowercaseResponse = aiResponse.toLowerCase();
+
+    return {
+      confirmsRisk: (risk) => {
+        return lowercaseResponse.includes(risk.type.toLowerCase().replace('_', ' ')) ||
+               lowercaseResponse.includes(risk.toolName?.toLowerCase() || '');
+      },
+      getConfidence: (risk) => {
+        // Extract confidence from AI response or default to moderate enhancement
+        if (lowercaseResponse.includes('high confidence')) return 0.9;
+        if (lowercaseResponse.includes('medium confidence')) return 0.7;
+        if (lowercaseResponse.includes('low confidence')) return 0.5;
+        return 0.8; // Default enhancement
+      },
+      additionalRisks: [] // Would parse additional risks from structured AI response
     };
   }
 
