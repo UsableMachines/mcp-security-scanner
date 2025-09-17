@@ -499,6 +499,10 @@ The repository is available in a Docker volume "${volumeName}" mounted at /src. 
 
       return analysis;
     } catch (error) {
+      // Handle local execution redirect cleanly
+      if (error instanceof Error && error.message === 'LOCAL_EXECUTION_REDIRECT') {
+        throw error; // Re-throw without wrapping
+      }
       console.error('MCP JSON analysis failed:', error);
       throw new Error(`MCP JSON analysis failed: ${error instanceof Error ? error.message : String(error)}`);
     }

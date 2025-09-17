@@ -262,6 +262,14 @@ Examples:
         });
       }
 
+      // Repository discovery for local execution patterns
+      if (result.mcpJsonAnalysis.repositoryDiscovery && result.mcpJsonAnalysis.repositoryDiscovery.suggestions.length > 0) {
+        console.log(`\n🔍 REPOSITORY DISCOVERY:`);
+        result.mcpJsonAnalysis.repositoryDiscovery.suggestions.forEach(suggestion => {
+          console.log(`   ${suggestion}`);
+        });
+      }
+
       if (result.mcpJsonAnalysis.packageAnalysis.suspiciousPackages.length > 0) {
         console.log(`\n📦 SUSPICIOUS PACKAGES DETECTED:`);
         result.mcpJsonAnalysis.packageAnalysis.suspiciousPackages.forEach((pkg, i) => {
@@ -307,6 +315,10 @@ Examples:
     }
 
   } catch (error) {
+    if (error.message.includes('LOCAL_EXECUTION_REDIRECT')) {
+      // Clean exit for local execution redirect - message already shown
+      process.exit(1);
+    }
     console.error(`\n❌ Scan failed: ${error.message}`);
 
     if (error.message.includes('Docker')) {

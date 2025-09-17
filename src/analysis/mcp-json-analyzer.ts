@@ -58,7 +58,11 @@ const MCPJsonAnalysisSchema = z.object({
     authenticationGaps: z.array(z.string())
   }),
   recommendations: z.array(z.string()),
-  summary: z.string()
+  summary: z.string(),
+  repositoryDiscovery: z.object({
+    repositories: z.array(z.string()),
+    suggestions: z.array(z.string())
+  }).optional()
 });
 
 export type MCPJsonAnalysis = z.infer<typeof MCPJsonAnalysisSchema>;
@@ -161,6 +165,38 @@ export class MCPJsonAnalyzer {
     return { risks, packageAnalysis, networkAnalysis };
   }
 
+  /**
+   * Simple guidance for local execution patterns - redirect to --repo analysis
+   */
+  async discoverRepositoryFromJSON(mcpConfig: MCPConfiguration): Promise<{ repositories: string[]; suggestions: string[] }> {
+    const localExecutionServers = Object.entries(mcpConfig.mcpServers).filter(([_, config]: [string, MCPServerConfig]) =>
+      config.command && config.command !== 'docker'
+    );
+
+    if (localExecutionServers.length === 0) {
+      return { repositories: [], suggestions: [] };
+    }
+
+    const serverNames = localExecutionServers.map(([name]) => name);
+    const commands = localExecutionServers.map(([_, config]: [string, MCPServerConfig]) => config.command);
+
+    return {
+      repositories: [],
+      suggestions: [
+        `⚠️  Local execution patterns detected: "${commands.join('", "')}" commands require source code access`,
+        '',
+        '🔧 RECOMMENDED ACTION:',
+        `   Use repository analysis instead of JSON-only analysis:`,
+        `   yarn node mcp_scan_cli.js --repo <github_repository_url>`,
+        '',
+        '💡 WHY:',
+        `   Servers "${serverNames.join('", "')}" use local script execution`,
+        `   Source code analysis provides comprehensive security assessment`,
+        `   JSON-only analysis has limited visibility into actual implementation risks`
+      ]
+    };
+  }
+
   async analyzeMCPConfiguration(mcpConfigInput: any): Promise<MCPJsonAnalysis> {
     console.log('Starting static pattern analysis of MCP configuration...');
 
@@ -171,6 +207,20 @@ export class MCPJsonAnalyzer {
     } catch (error) {
       console.error('MCP configuration validation failed:', error);
       throw new Error(`Invalid MCP configuration: ${error instanceof Error ? error.message : String(error)}`);
+    }
+
+    // Early exit for local execution patterns - redirect to --repo
+    const localExecutionServers = Object.entries(mcpConfig.mcpServers).filter(([_, config]: [string, MCPServerConfig]) =>
+      config.command && config.command !== 'docker'
+    );
+
+    if (localExecutionServers.length > 0) {
+      const serverNames = localExecutionServers.map(([name]) => name);
+      const commands = localExecutionServers.map(([_, config]: [string, MCPServerConfig]) => config.command);
+
+      const message = `\n❌ LOCAL EXECUTION DETECTED\nServers "${serverNames.join('", "')}" use "${commands.join('", "')}" commands.\n\nUse repository analysis instead:\nyarn node mcp_scan_cli.js --repo <github_repository_url>`;
+      console.log(message);
+      throw new Error('LOCAL_EXECUTION_REDIRECT');
     }
 
     // Perform comprehensive static analysis
@@ -210,13 +260,17 @@ export class MCPJsonAnalyzer {
     // Generate summary
     const summary = this.generateAnalysisSummary(risks.length, packageAnalysis, networkAnalysis, overallRisk);
 
+    // Discover repositories for local execution patterns
+    const repositoryDiscovery = await this.discoverRepositoryFromJSON(mcpConfig);
+
     return {
       overallRisk,
       risks,
       packageAnalysis,
       networkAnalysis,
       recommendations,
-      summary
+      summary,
+      repositoryDiscovery
     };
   }
 
