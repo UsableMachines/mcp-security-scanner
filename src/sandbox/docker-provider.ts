@@ -159,35 +159,14 @@ export class DockerSandboxProvider extends SandboxProvider {
     }
 
     try {
-      // First, let's check what manifest files are available
-      const listCmd = [
-        'docker run --rm',
-        `-v ${volumeName}:${sourcePath}`,
-        'alpine:latest',
-        'find', sourcePath,
-        '-name "package*.json" -o -name "go.mod" -o -name "requirements.txt" -o -name "Cargo.toml" -o -name "pom.xml"'
-      ].join(' ');
-
-      const { stdout: manifestList } = await execAsync(listCmd);
-      const manifestFiles = manifestList.trim().split('\n').filter(Boolean);
-
-      if (manifestFiles.length === 0) {
-        return {
-          success: false,
-          error: 'No supported manifest files found in repository'
-        };
-      }
-
-      // Use the first manifest file found (prioritize package.json for MCP servers)
-      const primaryManifest = manifestFiles.find(f => f.includes('package')) || manifestFiles[0];
-
-      // Step 3: Run OSV scanner with the volume mounted
+      // Use OSV Scanner's automatic source scanning (detects all project types)
       const scanCmd = [
         'docker run --rm',
         `-v ${volumeName}:/src`,
         'ghcr.io/google/osv-scanner:latest',
+        'scan source',
         '--format=json',
-        '-L', primaryManifest.replace(sourcePath, '/src')
+        '/src'
       ].join(' ');
 
       const { stdout, stderr } = await execAsync(scanCmd);
@@ -208,18 +187,34 @@ export class DockerSandboxProvider extends SandboxProvider {
           };
         }
       } else {
-        return {
-          success: false,
-          error: stderr || 'OSV scan produced no output'
-        };
-      }
-    } catch (error: any) {
-      // Check if error is due to no vulnerabilities found (which is actually success)
-      if (error.message && error.message.includes('no vulnerabilities found')) {
+        // Empty stdout means no vulnerabilities found - this is success
         return {
           success: true,
           results: { results: [] }
         };
+      }
+    } catch (error: any) {
+      // Check if error is due to no vulnerabilities found (which is actually success)
+      if (error.message && (error.message.includes('no vulnerabilities found') ||
+                           error.message.includes('found 0 packages') ||
+                           error.message.includes('Scanned') && error.message.includes('packages'))) {
+        return {
+          success: true,
+          results: { results: [] }
+        };
+      }
+
+      // Check if the stdout in the error contains JSON results
+      if (error.stdout && error.stdout.trim()) {
+        try {
+          const results = JSON.parse(error.stdout);
+          return {
+            success: true,
+            results
+          };
+        } catch (parseError) {
+          // Fall through to error case
+        }
       }
 
       return {

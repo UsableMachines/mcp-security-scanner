@@ -219,12 +219,7 @@ Examples:
         });
       }
 
-      if (code.suggestions.length > 0) {
-        console.log(`\n💡 SOURCE CODE SUGGESTIONS:`);
-        code.suggestions.forEach((suggestion, i) => {
-          console.log(`   ${i + 1}. ${suggestion}`);
-        });
-      }
+      // Skip source code suggestions - they duplicate the recommendations section
     }
 
     if (result.behavioralAnalysis) {

@@ -6,10 +6,28 @@ A TypeScript-based security scanner for MCP (Model Context Protocol) servers, de
 
 The MCP Security Scanner provides dual-mode analysis capabilities:
 
-- **Static Analysis**: When MCP server source code is available, performs OSV.dev vulnerability scanning, dependency analysis, and AI-powered source code security review
-- **Dynamic Analysis**: For black-box MCP servers, executes them in isolated sandbox environments and monitors runtime behavior (network, filesystem, process activity)
+- **Static Analysis**: When MCP server source code is available, performs OSV.dev vulnerability scanning, dependency analysis, and AI-powered source code security review. Supports **Python** (pyproject.toml, uv.lock, requirements.txt) and **TypeScript/JavaScript** (package.json, package-lock.json) projects.
+- **Dynamic Analysis**: For remote MCP servers, executes them in isolated sandbox environments and monitors runtime behavior (network, filesystem, process activity)
 
 The scanner uses a pluggable architecture supporting multiple AI providers (Kindo, Anthropic) and sandbox environments (Docker, Daytona microVMs).
+
+## Recent Updates
+
+### ✅ Multi-Language Support (Latest)
+- **Python MCP Servers**: Full support for `pyproject.toml`, `uv.lock`, and `requirements.txt` projects
+- **Automatic Project Detection**: OSV Scanner automatically detects Python, TypeScript, Rust, Go, and other ecosystems
+- **UV Package Manager**: Native support for Python projects using UV dependency management
+
+### ✅ Enhanced Docker Security Analysis
+- **Real Vulnerability Scanning**: Docker images are now scanned for actual CVEs using OSV Scanner
+- **Tar Archive Method**: Eliminates Docker tag requirement issues by creating temporary archives
+- **Comprehensive Coverage**: Scans all Docker images referenced in MCP JSON configurations
+- **Severity Breakdown**: Provides detailed vulnerability analysis with CRITICAL/HIGH/MEDIUM/LOW classifications
+
+### ✅ Improved Report Quality
+- **Removed Duplicate Sections**: Eliminated redundant "Source Code Suggestions" that duplicated recommendations
+- **Actionable Recommendations**: Focused on security team actionable items rather than read-only suggestions
+- **Cleaner Output**: Streamlined security reports for better readability and professional presentation
 
 ## Architecture
 
@@ -166,13 +184,20 @@ yarn test              # Run Jest tests
 
 # Usage Examples
 yarn node mcp_scan_cli.js <local_path>                    # Local analysis
-yarn node mcp_scan_cli.js --repo <github_url>             # Remote analysis
+yarn node mcp_scan_cli.js --repo <github_url>             # Remote analysis (Python & TypeScript)
 yarn node mcp_scan_cli.js --repo <url> --mode static      # Static only
 yarn node mcp_scan_cli.js --json '<mcp_config_json>'      # MCP JSON analysis
 
+# Python MCP Server Examples
+yarn node mcp_scan_cli.js --repo https://github.com/MiniMax-AI/MiniMax-MCP      # Python with uv.lock
+yarn node mcp_scan_cli.js --repo https://github.com/your-org/python-mcp-server  # Python with requirements.txt
+
+# TypeScript MCP Server Examples
+yarn node mcp_scan_cli.js --repo https://github.com/upstash/context7            # TypeScript with package.json
+
 # MCP JSON Configuration Analysis Examples
-yarn node mcp_scan_cli.js --json '{"mcpServers":{"brave":{"command":"docker","args":["run","--privileged","malicious:latest"]}}}'
-yarn node mcp_scan_cli.js --json '{"mcpServers":{"linear":{"command":"npx","args":["-y","@suspicious/mcp-server"]}}}'
+yarn node mcp_scan_cli.js --json '{"mcpServers":{"redis":{"command":"docker","args":["run","-i","--rm","mcp/redis"]}}}'
+yarn node mcp_scan_cli.js --json '{"mcpServers":{"python":{"command":"uv","args":["--directory","/path","run","script.py"]}}}'
 ```
 
 ## Contributing
@@ -314,12 +339,11 @@ When adding new analysis capabilities, focus on these MCP-specific attack vector
 - **Security Risk Assessment**: Detects privileged containers, dangerous mounts, unpinned images
 - **MCP-Specific Validation**: Uses Zod schemas for configuration validation
 
-#### Future: Enhanced Docker Analysis (`args`-based)
-🔄 **Planned for Next Release** - Advanced Docker container analysis:
-- **OSV Image Scanning**: Vulnerability scanning of Docker images using OSV Scanner
-- **Dynamic Container Analysis**: Runtime behavior monitoring in det chamber/sandbox environment
-- **Layer-by-Layer CVE Analysis**: Detailed vulnerability assessment of container layers
-- **Container Escape Detection**: Analysis of potential container breakout scenarios
+#### ✅ Enhanced Docker Analysis (`args`-based) - **IMPLEMENTED**
+- **OSV Image Scanning**: ✅ Vulnerability scanning of Docker images using OSV Scanner with tar archive approach
+- **Docker Image CVE Detection**: ✅ Scans container images for known vulnerabilities and provides severity breakdown
+- **Automatic Tag Handling**: ✅ Handles untagged images by creating tar archives, eliminating tag requirement issues
+- **Real Vulnerability Analysis**: ✅ Replaced misleading "unpinned image" warnings with actual CVE detection
 
 #### Future: Remote Configuration Analysis (`url`-based)
 🔄 **Planned for Future Release** - Analysis for MCP configurations with `url` and `headers` fields:
@@ -379,14 +403,14 @@ The scanner employs a sophisticated two-tier analysis approach that combines tra
 #### Layer 1: OSV Scanner (Dependency Analysis)
 **What it does:**
 - Queries the OSV.dev vulnerability database for known CVEs in dependencies
-- Scans `package.json`, `package-lock.json`, and other dependency manifests
+- **Automatic Project Detection**: Scans Python (`pyproject.toml`, `uv.lock`, `requirements.txt`), TypeScript/JavaScript (`package.json`, `package-lock.json`), Rust (`Cargo.toml`), Go (`go.mod`), and other ecosystems
 - Provides CVSS scores and severity ratings for identified vulnerabilities
 - Covers transitive dependencies through lockfile analysis
 
 **Execution method:**
 ```bash
-# Runs in sandboxed Docker container
-osv-scanner --recursive /src --format json
+# Runs in sandboxed Docker container with automatic project type detection
+osv-scanner scan source /src --format json
 ```
 
 **Limitations:**

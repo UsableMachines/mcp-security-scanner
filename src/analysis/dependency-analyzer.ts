@@ -84,40 +84,17 @@ export class DependencyAnalyzer {
     // Step 2: Run OSV scan in sandbox
     const osvScanResult = await sandboxProvider.runOSVScan('/tmp/repo');
 
-    // Step 3: Parse package.json from volume using a simple container
+    // Step 3: Extract project info from OSV scan results (OSV Scanner auto-detects all project types)
     let projectInfo: { name: string; version: string; dependencies: DependencyInfo[] };
 
     try {
-      // Since we're using Docker volumes, we need to access files differently
-      // The volume is stored in the provider, we need to use it to read files
-      const volumeName = (sandboxProvider as any)._currentVolume;
-
-      if (!volumeName) {
-        throw new Error('No Docker volume available for reading project files');
+      if (!osvScanResult.success) {
+        throw new Error(`OSV scan failed: ${osvScanResult.error}`);
       }
 
-      // Read package.json using a simple alpine container with volume mounted
-      const packageJsonResult = await execAsync(`docker run --rm -v ${volumeName}:/src alpine:latest cat /src/package.json`);
-      const packageJson = PackageJsonSchema.parse(JSON.parse(packageJsonResult.stdout));
+      // Extract project info from OSV scan results
+      projectInfo = this.extractProjectInfoFromOSVResults(osvScanResult);
 
-      // Try to get lockfile data too
-      let lockfileData = null;
-      try {
-        const lockfileResult = await execAsync(`docker run --rm -v ${volumeName}:/src alpine:latest cat /src/package-lock.json`);
-        lockfileData = PackageLockJsonSchema.parse(JSON.parse(lockfileResult.stdout));
-      } catch {
-        // No lockfile - that's okay
-      }
-
-      const dependencies = lockfileData
-        ? this.extractDependencies(packageJson, lockfileData)
-        : this.extractDependenciesFromPackageJson(packageJson);
-
-      projectInfo = {
-        name: packageJson.name,
-        version: packageJson.version,
-        dependencies
-      };
     } catch (error) {
       // Clean up volume on error
       if (typeof (sandboxProvider as any).cleanupCurrentVolume === 'function') {
@@ -369,6 +346,58 @@ export class DependencyAnalyzer {
     );
 
     return result.dependencies.filter(dep => vulnerablePackages.has(dep.name));
+  }
+
+  /**
+   * Extract project information from OSV scan results
+   */
+  private extractProjectInfoFromOSVResults(osvResult: OSVScanResult): { name: string; version: string; dependencies: DependencyInfo[] } {
+    const dependencies: DependencyInfo[] = [];
+    let projectName = 'unknown-project';
+    let projectVersion = '1.0.0';
+
+    if (osvResult.vulnerabilities && osvResult.vulnerabilities.length > 0) {
+      for (const result of osvResult.vulnerabilities) {
+        if (result.packages) {
+          for (const pkg of result.packages) {
+            if (pkg.package) {
+              const packageName = pkg.package.name;
+              const packageVersion = pkg.package.version || '1.0.0';
+              const ecosystem = pkg.package.ecosystem || 'unknown';
+
+              // Use first package as project name if it looks like a main package
+              if (projectName === 'unknown-project' && packageName && !packageName.startsWith('@')) {
+                projectName = packageName;
+                projectVersion = packageVersion;
+              }
+
+              dependencies.push({
+                name: packageName,
+                version: packageVersion,
+                type: 'direct', // OSV doesn't distinguish dependency types in scan results
+                ecosystem: ecosystem.toLowerCase()
+              });
+            }
+          }
+        }
+      }
+    }
+
+    // If no packages found, create a minimal project info
+    if (dependencies.length === 0) {
+      dependencies.push({
+        name: 'no-dependencies-detected',
+        version: '1.0.0',
+        type: 'direct',
+        ecosystem: 'unknown'
+      });
+    }
+
+    return {
+      name: projectName,
+      version: projectVersion,
+      dependencies
+    };
   }
 
   /**
