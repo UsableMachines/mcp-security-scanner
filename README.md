@@ -164,10 +164,15 @@ yarn lint              # ESLint checking
 yarn typecheck         # TypeScript type checking
 yarn test              # Run Jest tests
 
-# Usage
+# Usage Examples
 yarn node mcp_scan_cli.js <local_path>                    # Local analysis
 yarn node mcp_scan_cli.js --repo <github_url>             # Remote analysis
 yarn node mcp_scan_cli.js --repo <url> --mode static      # Static only
+yarn node mcp_scan_cli.js --json '<mcp_config_json>'      # MCP JSON analysis
+
+# MCP JSON Configuration Analysis Examples
+yarn node mcp_scan_cli.js --json '{"mcpServers":{"brave":{"command":"docker","args":["run","--privileged","malicious:latest"]}}}'
+yarn node mcp_scan_cli.js --json '{"mcpServers":{"linear":{"command":"npx","args":["-y","@suspicious/mcp-server"]}}}'
 ```
 
 ## Contributing
@@ -177,8 +182,10 @@ yarn node mcp_scan_cli.js --repo <url> --mode static      # Static only
 ```
 src/
 ├── analysis/           # Analysis engines
-│   ├── ai-analyzer.ts     # AI-powered security analysis
-│   └── dependency-analyzer.ts # OSV vulnerability scanning
+│   ├── ai-analyzer.ts         # AI-powered security analysis
+│   ├── dependency-analyzer.ts # OSV vulnerability scanning
+│   ├── mcp-json-analyzer.ts   # MCP JSON configuration analysis
+│   └── mcp-config-schema.ts   # MCP configuration validation schemas
 ├── sandbox/           # Sandboxing infrastructure
 │   ├── sandbox-manager.ts    # Provider selection & management
 │   ├── docker-provider.ts    # Docker isolation
@@ -286,6 +293,82 @@ The scanner focuses on these MCP security patterns:
 - **Network Abuse**: Unexpected external connections
 
 When adding new analysis capabilities, focus on these MCP-specific attack vectors.
+
+## Roadmap
+
+### MCP JSON Configuration Analysis
+
+#### Currently Supported: Local Execution Analysis (`args`-based)
+✅ **Static Pattern Analysis** - Detects security risks in MCP configurations with `command` and `args` fields:
+- **NPX Auto-install Risks**: `npx -y` patterns enabling supply chain attacks
+- **Docker Container Security**: Privileged mode, dangerous volume mounts, host networking, unpinned images
+- **Python Package Execution**: `uvx` and `pip` untrusted package installation
+- **Command Injection**: Shell metacharacters in arguments
+- **Credential Exposure**: API keys and tokens in command line arguments
+- **Bridge/Proxy Detection**: Package names indicating authentication bridging
+- **Network Endpoint Analysis**: HTTP vs HTTPS, authentication gaps
+
+**Enhanced Docker Analysis:**
+- **Robust Flag Parsing**: Handles complex Docker flags with values (e.g., `-e API_KEY`, `-v /host:/container`)
+- **Image Name Extraction**: Correctly identifies Docker images from complex argument patterns
+- **Security Risk Assessment**: Detects privileged containers, dangerous mounts, unpinned images
+- **MCP-Specific Validation**: Uses Zod schemas for configuration validation
+
+#### Future: Enhanced Docker Analysis (`args`-based)
+🔄 **Planned for Next Release** - Advanced Docker container analysis:
+- **OSV Image Scanning**: Vulnerability scanning of Docker images using OSV Scanner
+- **Dynamic Container Analysis**: Runtime behavior monitoring in det chamber/sandbox environment
+- **Layer-by-Layer CVE Analysis**: Detailed vulnerability assessment of container layers
+- **Container Escape Detection**: Analysis of potential container breakout scenarios
+
+#### Future: Remote Configuration Analysis (`url`-based)
+🔄 **Planned for Future Release** - Analysis for MCP configurations with `url` and `headers` fields:
+- **Transport Security**: HTTP vs HTTPS endpoint analysis
+- **Header Security**: Authentication token exposure patterns
+- **CORS Configuration**: Cross-origin security policy analysis
+- **Endpoint Validation**: URL pattern security assessment
+- **API Authentication**: Token-based auth security review
+
+#### Configuration Examples
+
+**Local Execution (Currently Analyzed):**
+```json
+{
+  "mcpServers": {
+    "context7": {
+      "command": "npx",
+      "args": ["-y", "@upstash/context7-mcp", "--api-key", "YOUR_API_KEY"]
+    },
+    "brave-search": {
+      "command": "docker",
+      "args": ["run", "-i", "--rm", "-e", "BRAVE_API_KEY", "mcp/brave-search"],
+      "env": {"BRAVE_API_KEY": "YOUR_API_KEY_HERE"}
+    },
+    "risky-container": {
+      "command": "docker",
+      "args": ["run", "--privileged", "-v", "/:/host", "--network=host", "malicious:latest"]
+    },
+    "python-server": {
+      "command": "uvx",
+      "args": ["--directory", "/path/to/server", "run", "mcp_server.py"]
+    }
+  }
+}
+```
+
+**Remote Configuration (Future Roadmap):**
+```json
+{
+  "mcpServers": {
+    "context7": {
+      "url": "https://mcp.context7.com/mcp",
+      "headers": {
+        "CONTEXT7_API_KEY": "YOUR_API_KEY"
+      }
+    }
+  }
+}
+```
 
 ## Security Analysis Deep Dive
 
@@ -546,6 +629,44 @@ temperature: 0.1  // ⚠️ May miss complex vulnerabilities
 ```
 
 This implementation achieves the reliability required for enterprise security workflows while maintaining the analytical sophistication needed to detect novel MCP-specific vulnerabilities.
+
+## Technical Implementation
+
+### MCP Configuration Validation
+
+The scanner uses **Zod schemas** for robust MCP configuration validation:
+
+```typescript
+// MCP Server Configuration Schema
+export const MCPServerConfigSchema = z.object({
+  command: z.string(),
+  args: z.array(z.string()).optional(),
+  env: z.record(z.string(), z.string()).optional(),
+  // Future: URL-based configurations
+  url: z.string().optional(),
+  headers: z.record(z.string(), z.string()).optional()
+});
+```
+
+### Enhanced Docker Command Parsing
+
+The `DockerCommandParser` class provides robust parsing of Docker run commands:
+
+```typescript
+// Example: ["run", "--privileged", "-v", "/:/host", "-e", "API_KEY", "image:tag"]
+const dockerConfig = DockerCommandParser.parseDockerRun(args);
+// Results: {
+//   image: "image:tag",
+//   isPrivileged: true,
+//   volumes: ["/:/host"],
+//   envVars: ["API_KEY"]
+// }
+```
+
+**Key Features:**
+- **Flag Value Handling**: Properly skips flags that take values (`-e KEY`, `-v /a:/b`)
+- **Complex Flag Support**: Handles combined flags, inline values, and edge cases
+- **Security-Focused**: Extracts security-relevant configuration for risk assessment
 
 ## Architecture Decisions
 

@@ -11,13 +11,15 @@ import { configManager } from './config';
 import { SandboxManager } from './sandbox/sandbox-manager';
 import { AIAnalyzer, type SecurityAnalysis } from './analysis/ai-analyzer';
 import { DependencyAnalyzer, type DependencyAnalysisResult } from './analysis/dependency-analyzer';
+import { MCPJsonAnalyzer, type MCPJsonAnalysis } from './analysis/mcp-json-analyzer';
 import { OSVService } from './services/osv-service';
 
-export type ScanMode = 'static' | 'dynamic' | 'hybrid';
+export type ScanMode = 'static' | 'dynamic' | 'hybrid' | 'json';
 
 export interface ScanOptions {
   mode?: ScanMode;
   sourceCodeUrl?: string; // GitHub/GitLab URL for static analysis
+  mcpJsonConfig?: any; // MCP JSON configuration for black box analysis
   timeout?: number;
   skipDependencyAnalysis?: boolean;
   skipBehavioralAnalysis?: boolean;
@@ -44,6 +46,9 @@ export interface ComprehensiveScanResult {
   // Dynamic analysis results (when MCP server is available)
   behavioralAnalysis?: SecurityAnalysis;
 
+  // Black box MCP JSON analysis results
+  mcpJsonAnalysis?: MCPJsonAnalysis;
+
   // Combined assessment
   overallRisk: 'critical' | 'high' | 'medium' | 'low';
   summary: string;
@@ -54,6 +59,7 @@ export class MCPSecurityScanner {
   private sandboxManager: SandboxManager;
   private aiAnalyzer: AIAnalyzer;
   private dependencyAnalyzer: DependencyAnalyzer;
+  private mcpJsonAnalyzer: MCPJsonAnalyzer;
   private osvService: OSVService;
   private isInitialized = false;
 
@@ -64,6 +70,7 @@ export class MCPSecurityScanner {
     this.aiAnalyzer = new AIAnalyzer(configManager.getAIAnalyzerConfig());
     this.osvService = new OSVService();
     this.dependencyAnalyzer = new DependencyAnalyzer(this.osvService);
+    this.mcpJsonAnalyzer = new MCPJsonAnalyzer(this.aiAnalyzer['aiRouter'], this.sandboxManager);
 
     console.log('MCP Security Scanner initialized');
   }
@@ -114,7 +121,7 @@ export class MCPSecurityScanner {
 
     // Dynamic Analysis (when MCP server is available)
     let behavioralAnalysis: SecurityAnalysis | undefined;
-    if (!options.skipBehavioralAnalysis) {
+    if (!options.skipBehavioralAnalysis && scanMode !== 'json') {
       console.log('Performing behavioral analysis in sandbox...');
       try {
         behavioralAnalysis = await this.performBehavioralAnalysis(mcpServerPath, options);
@@ -129,6 +136,21 @@ export class MCPSecurityScanner {
           throw new Error(`Behavioral analysis failed: ${error}`);
         }
       }
+    } else if (scanMode === 'json') {
+      console.log('⚠️  Behavioral analysis skipped: JSON-only analysis mode');
+      behavioralAnalysis = undefined;
+    }
+
+    // Black Box MCP JSON Analysis
+    let mcpJsonAnalysis: MCPJsonAnalysis | undefined;
+    if (scanMode === 'json' && options.mcpJsonConfig) {
+      console.log('Performing black box MCP JSON analysis...');
+      try {
+        mcpJsonAnalysis = await this.performMCPJsonAnalysis(options.mcpJsonConfig);
+        console.log(`MCP JSON analysis complete: ${mcpJsonAnalysis.risks.length} security risks identified`);
+      } catch (error) {
+        throw new Error(`MCP JSON analysis failed: ${error}`);
+      }
     }
 
     // Combine results and generate comprehensive assessment
@@ -137,7 +159,8 @@ export class MCPSecurityScanner {
       startTime,
       dependencyAnalysis,
       sourceCodeAnalysis,
-      behavioralAnalysis
+      behavioralAnalysis,
+      mcpJsonAnalysis
     );
 
     console.log(`Scan complete in ${result.duration}ms - Overall risk: ${result.overallRisk.toUpperCase()}`);
@@ -462,23 +485,49 @@ The repository is available in a Docker volume "${volumeName}" mounted at /src. 
     return analysis;
   }
 
+  private async performMCPJsonAnalysis(mcpJsonConfig: any): Promise<MCPJsonAnalysis> {
+    console.log('Starting AI-powered analysis of MCP JSON configuration...');
+
+    try {
+      const analysis = await this.mcpJsonAnalyzer.analyzeMCPConfiguration(mcpJsonConfig);
+
+      console.log(`MCP JSON analysis findings:`);
+      console.log(`- Security risks: ${analysis.risks.length}`);
+      console.log(`- Suspicious packages: ${analysis.packageAnalysis.suspiciousPackages.length}`);
+      console.log(`- Bridge packages detected: ${analysis.packageAnalysis.bridgePackages.length}`);
+      console.log(`- Remote endpoints: ${analysis.networkAnalysis.remoteEndpoints.length}`);
+
+      return analysis;
+    } catch (error) {
+      console.error('MCP JSON analysis failed:', error);
+      throw new Error(`MCP JSON analysis failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
   private generateComprehensiveResult(
     scanMode: ScanMode,
     startTime: number,
     dependencyAnalysis?: DependencyAnalysisResult,
     sourceCodeAnalysis?: ComprehensiveScanResult['sourceCodeAnalysis'],
-    behavioralAnalysis?: SecurityAnalysis
+    behavioralAnalysis?: SecurityAnalysis,
+    mcpJsonAnalysis?: MCPJsonAnalysis
   ): ComprehensiveScanResult {
     // For static-only mode, behavioral analysis is optional
-    if (!behavioralAnalysis && scanMode !== 'static') {
+    // For JSON mode, MCP JSON analysis is required
+    if (!behavioralAnalysis && scanMode !== 'static' && scanMode !== 'json') {
       throw new Error('Behavioral analysis is required for comprehensive results in dynamic/hybrid modes');
+    }
+
+    if (!mcpJsonAnalysis && scanMode === 'json') {
+      throw new Error('MCP JSON analysis is required for JSON mode');
     }
 
     // Determine overall risk by combining all analysis results
     const overallRisk = this.calculateOverallRisk(
       dependencyAnalysis,
       sourceCodeAnalysis,
-      behavioralAnalysis
+      behavioralAnalysis,
+      mcpJsonAnalysis
     );
 
     // Generate comprehensive summary
@@ -487,6 +536,7 @@ The repository is available in a Docker volume "${volumeName}" mounted at /src. 
       dependencyAnalysis,
       sourceCodeAnalysis,
       behavioralAnalysis,
+      mcpJsonAnalysis,
       overallRisk
     );
 
@@ -494,7 +544,8 @@ The repository is available in a Docker volume "${volumeName}" mounted at /src. 
     const recommendations = this.combineRecommendations(
       dependencyAnalysis,
       sourceCodeAnalysis,
-      behavioralAnalysis
+      behavioralAnalysis,
+      mcpJsonAnalysis
     );
 
     return {
@@ -504,6 +555,7 @@ The repository is available in a Docker volume "${volumeName}" mounted at /src. 
       dependencyAnalysis,
       sourceCodeAnalysis,
       behavioralAnalysis,
+      mcpJsonAnalysis,
       overallRisk,
       summary,
       recommendations
@@ -513,13 +565,19 @@ The repository is available in a Docker volume "${volumeName}" mounted at /src. 
   private calculateOverallRisk(
     dependencyAnalysis?: DependencyAnalysisResult,
     sourceCodeAnalysis?: ComprehensiveScanResult['sourceCodeAnalysis'],
-    behavioralAnalysis?: SecurityAnalysis
+    behavioralAnalysis?: SecurityAnalysis,
+    mcpJsonAnalysis?: MCPJsonAnalysis
   ): 'critical' | 'high' | 'medium' | 'low' {
     const riskLevels: Array<'critical' | 'high' | 'medium' | 'low'> = [];
 
-    // Behavioral analysis risk (always present)
+    // Behavioral analysis risk
     if (behavioralAnalysis) {
       riskLevels.push(behavioralAnalysis.overallRisk);
+    }
+
+    // MCP JSON analysis risk
+    if (mcpJsonAnalysis) {
+      riskLevels.push(mcpJsonAnalysis.overallRisk);
     }
 
     // Dependency analysis risk
@@ -554,12 +612,14 @@ The repository is available in a Docker volume "${volumeName}" mounted at /src. 
     dependencyAnalysis?: DependencyAnalysisResult,
     sourceCodeAnalysis?: ComprehensiveScanResult['sourceCodeAnalysis'],
     behavioralAnalysis?: SecurityAnalysis,
+    mcpJsonAnalysis?: MCPJsonAnalysis,
     overallRisk?: string
   ): string {
     const analysisTypes = [];
     if (dependencyAnalysis) analysisTypes.push('dependency scanning');
     if (sourceCodeAnalysis) analysisTypes.push('source code analysis');
     if (behavioralAnalysis) analysisTypes.push('behavioral analysis');
+    if (mcpJsonAnalysis) analysisTypes.push('MCP JSON configuration analysis');
 
     let summary = `${scanMode.toUpperCase()} security analysis completed using ${analysisTypes.join(', ')}. `;
 
@@ -592,12 +652,17 @@ The repository is available in a Docker volume "${volumeName}" mounted at /src. 
   private combineRecommendations(
     dependencyAnalysis?: DependencyAnalysisResult,
     sourceCodeAnalysis?: ComprehensiveScanResult['sourceCodeAnalysis'],
-    behavioralAnalysis?: SecurityAnalysis
+    behavioralAnalysis?: SecurityAnalysis,
+    mcpJsonAnalysis?: MCPJsonAnalysis
   ): string[] {
     const recommendations = new Set<string>();
 
     if (behavioralAnalysis) {
       behavioralAnalysis.recommendations.forEach((rec: string) => recommendations.add(rec));
+    }
+
+    if (mcpJsonAnalysis) {
+      mcpJsonAnalysis.recommendations.forEach((rec: string) => recommendations.add(rec));
     }
 
     if (sourceCodeAnalysis) {

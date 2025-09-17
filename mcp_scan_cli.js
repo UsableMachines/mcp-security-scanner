@@ -14,33 +14,39 @@ async function main() {
     console.log(`
 🔒 MCP Security Scanner v0.1.0
 Usage:
+  # Source code analysis (when code is available)
   node mcp_scan_cli.js <local_mcp_server_path> [options]     # For local servers
-  node mcp_scan_cli.js --repo <github_url> [options]        # For remote static analysis
+  node mcp_scan_cli.js --repo <github_url> [options]        # For remote repositories
+
+  # Black box analysis (when only MCP JSON config is available)
+  node mcp_scan_cli.js --json <mcp_config_json> [options]   # For MCP JSON configurations
 
 Arguments:
   local_mcp_server_path  Path to local MCP server executable (for dynamic analysis)
 
 Options:
   --repo URL         GitHub/GitLab repository URL (for static analysis only)
+  --json JSON        MCP configuration JSON string (for black box analysis)
   --mode MODE        Analysis mode: static, dynamic, hybrid (default: auto)
   --timeout MS       Timeout in milliseconds (default: 300000)
   --help             Show this help
 
 Examples:
-  # Static analysis of GitHub repo
+  # Source code static analysis
   node mcp_scan_cli.js --repo https://github.com/user/mcp-server
 
-  # Dynamic analysis of local server (future feature)
-  node mcp_scan_cli.js /path/to/mcp-server.js
+  # Black box MCP JSON analysis
+  node mcp_scan_cli.js --json '{"mcpServers":{"linear":{"command":"npx","args":["-y","mcp-remote","https://mcp.linear.app/sse"]}}}'
 
-  # Static analysis with custom timeout
-  node mcp_scan_cli.js --repo https://github.com/user/mcp-server --timeout 60000
+  # Dynamic analysis of local server
+  node mcp_scan_cli.js /path/to/mcp-server.js
 `);
     process.exit(0);
   }
 
   let mcpServerPath = null;
   let repoUrl = null;
+  let mcpJsonConfig = null;
   const options = {};
 
   // Parse command line options
@@ -51,6 +57,15 @@ Examples:
         if (!repoUrl) {
           console.error('--repo requires a URL');
           process.exit(1);
+        }
+        break;
+      case '--json':
+        // Check if next arg exists and doesn't start with --
+        if (i + 1 < args.length && !args[i + 1].startsWith('--')) {
+          mcpJsonConfig = args[++i];
+        } else {
+          // No JSON provided, will prompt for it later
+          mcpJsonConfig = 'PROMPT_FOR_JSON';
         }
         break;
       case '--mode':
@@ -78,14 +93,16 @@ Examples:
   }
 
   // Validate arguments
-  if (!mcpServerPath && !repoUrl) {
-    console.error('Error: Must provide either a local MCP server path or --repo URL');
+  const inputCount = [mcpServerPath, repoUrl, mcpJsonConfig].filter(Boolean).length;
+
+  if (inputCount === 0) {
+    console.error('Error: Must provide one of: local MCP server path, --repo URL, or --json config');
     console.log('Run with --help for usage examples');
     process.exit(1);
   }
 
-  if (mcpServerPath && repoUrl) {
-    console.error('Error: Cannot specify both local server path and --repo URL');
+  if (inputCount > 1) {
+    console.error('Error: Cannot specify multiple input sources simultaneously');
     process.exit(1);
   }
 
@@ -98,6 +115,51 @@ Examples:
     options.mode = 'static';
     // Use dummy path for static-only mode
     mcpServerPath = 'static-analysis-only';
+  } else if (mcpJsonConfig) {
+    console.log(`Analysis: Black Box (MCP JSON configuration)`);
+    options.mode = 'json';
+
+    // Handle JSON input
+    let jsonInput = mcpJsonConfig;
+    if (mcpJsonConfig === 'PROMPT_FOR_JSON') {
+      console.log('\nPlease paste your MCP JSON configuration below.');
+      console.log('Press Ctrl+D (Linux/Mac) or Ctrl+Z then Enter (Windows) when finished:\n');
+
+      // Read from stdin
+      const readline = require('readline');
+      const rl = readline.createInterface({
+        input: process.stdin,
+        output: process.stdout
+      });
+
+      let jsonLines = [];
+
+      await new Promise((resolve) => {
+        rl.on('line', (line) => {
+          jsonLines.push(line);
+        });
+
+        rl.on('close', () => {
+          resolve();
+        });
+      });
+
+      jsonInput = jsonLines.join('\n');
+      console.log('\nJSON received, parsing...\n');
+    }
+
+    // Parse JSON configuration
+    if (jsonInput !== 'PROMPT_FOR_JSON') {
+      console.log(`JSON Config: ${jsonInput.substring(0, 100)}${jsonInput.length > 100 ? '...' : ''}`);
+    }
+    try {
+      const jsonConfig = JSON.parse(jsonInput);
+      options.mcpJsonConfig = jsonConfig;
+    } catch (error) {
+      console.error(`Error: Invalid JSON format: ${error.message}`);
+      process.exit(1);
+    }
+    mcpServerPath = 'json-analysis-mode';
   } else {
     console.log(`Target: ${mcpServerPath}`);
     console.log(`Mode: ${options.mode || 'auto'}`);
@@ -182,6 +244,49 @@ Examples:
     } else {
       console.log(`\n🔬 BEHAVIORAL ANALYSIS:`);
       console.log(`   ⚠️  Skipped (static-only analysis mode)`);
+    }
+
+    if (result.mcpJsonAnalysis) {
+      console.log(`\n🔍 MCP JSON CONFIGURATION ANALYSIS:`);
+      console.log(`   Security Risks:        ${result.mcpJsonAnalysis.risks.length}`);
+      console.log(`   Suspicious Packages:   ${result.mcpJsonAnalysis.packageAnalysis.suspiciousPackages.length}`);
+      console.log(`   Bridge Packages:       ${result.mcpJsonAnalysis.packageAnalysis.bridgePackages.length}`);
+      console.log(`   Remote Endpoints:      ${result.mcpJsonAnalysis.networkAnalysis.remoteEndpoints.length}`);
+
+      if (result.mcpJsonAnalysis.risks.length > 0) {
+        console.log(`\n⚠️  MCP CONFIGURATION RISKS IDENTIFIED:`);
+        result.mcpJsonAnalysis.risks.forEach((risk, i) => {
+          console.log(`   ${i + 1}. ${risk.type.replace(/_/g, ' ').toUpperCase()} (${risk.severity.toUpperCase()})`);
+          console.log(`      ${risk.description}`);
+          if (risk.evidence && risk.evidence.length > 0) {
+            console.log(`      Evidence: ${risk.evidence.join(', ')}`);
+          }
+          if (risk.aiConfidence) {
+            console.log(`      AI Confidence: ${Math.round(risk.aiConfidence * 100)}%`);
+          }
+        });
+      }
+
+      if (result.mcpJsonAnalysis.packageAnalysis.suspiciousPackages.length > 0) {
+        console.log(`\n📦 SUSPICIOUS PACKAGES DETECTED:`);
+        result.mcpJsonAnalysis.packageAnalysis.suspiciousPackages.forEach((pkg, i) => {
+          console.log(`   ${i + 1}. ${pkg}`);
+        });
+      }
+
+      if (result.mcpJsonAnalysis.packageAnalysis.bridgePackages.length > 0) {
+        console.log(`\n🌉 AUTHENTICATION BRIDGE PACKAGES:`);
+        result.mcpJsonAnalysis.packageAnalysis.bridgePackages.forEach((bridge, i) => {
+          console.log(`   ${i + 1}. ${bridge} (HIDES AUTH FLOW)`);
+        });
+      }
+
+      if (result.mcpJsonAnalysis.networkAnalysis.insecureProtocols.length > 0) {
+        console.log(`\n🔓 INSECURE NETWORK PROTOCOLS:`);
+        result.mcpJsonAnalysis.networkAnalysis.insecureProtocols.forEach((protocol, i) => {
+          console.log(`   ${i + 1}. ${protocol}`);
+        });
+      }
     }
 
     console.log(`\n📝 SUMMARY:`);

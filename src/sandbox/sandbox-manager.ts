@@ -163,4 +163,72 @@ export class SandboxManager {
     }
     return this.activeProvider;
   }
+
+  // MCP-specific deployment methods
+  async createIsolatedEnvironment(): Promise<string> {
+    await this.initialize();
+
+    if (!this.activeProvider) {
+      throw new Error('No active sandbox provider for creating isolated environment');
+    }
+
+    // Generate unique environment ID
+    const envId = `mcp-env-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    return envId;
+  }
+
+  async deployMCPConfiguration(mcpConfig: any): Promise<any> {
+    await this.initialize();
+
+    if (!this.activeProvider) {
+      throw new Error('No active sandbox provider for MCP deployment');
+    }
+
+    try {
+      // Simulate MCP deployment by extracting servers and running them
+      const results: any[] = [];
+
+      for (const [serverName, config] of Object.entries(mcpConfig.mcpServers || {})) {
+        console.log(`Deploying MCP server: ${serverName}`);
+
+        const serverConfig = config as any;
+        const result = await this.activeProvider.executeInSandbox(
+          serverConfig.command || 'echo',
+          serverConfig.args || [],
+          {
+            timeout: 30,
+            environment: serverConfig.env || {}
+          }
+        );
+
+        results.push({
+          serverName,
+          ...result
+        });
+      }
+
+      // Combine all results
+      const combinedResult = {
+        deploymentSuccess: results.every(r => r.exitCode === 0),
+        networkActivity: results.flatMap(r => r.networkActivity || []),
+        processActivity: results.flatMap(r => r.processActivity || []),
+        fileSystemActivity: results.flatMap(r => r.fileSystemActivity || []),
+        servers: results.map(r => ({ name: r.serverName, exitCode: r.exitCode }))
+      };
+
+      return combinedResult;
+    } catch (error) {
+      throw new Error(`MCP deployment failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  async captureTraffic(sandboxId: string): Promise<any> {
+    // Implementation for traffic capture would go here
+    // For now return empty structure
+    return {
+      connections: [],
+      requests: [],
+      responses: []
+    };
+  }
 }
