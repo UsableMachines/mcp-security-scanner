@@ -323,4 +323,88 @@ USER nobody
     // TODO: Implement process monitoring
     return [];
   }
+
+  /**
+   * Scan Docker image using OSV Scanner Docker image
+   */
+  async scanDockerImageWithOSV(
+    dockerImage: string,
+    config: SandboxConfig = {}
+  ): Promise<{ success: boolean; results?: any; error?: string }> {
+    try {
+      console.log(`Scanning Docker image: ${dockerImage} using OSV Scanner Docker image`);
+
+      // Step 1: Pull the image
+      console.log(`Pulling Docker image: ${dockerImage}`);
+      await execAsync(`docker pull ${dockerImage}`, { timeout: 120000 });
+
+      // Step 2: Save image as tar archive
+      const tarFileName = `${dockerImage.replace(/[\/\:]/g, '_')}.tar`;
+      const tarPath = `/tmp/${tarFileName}`;
+      console.log(`Saving Docker image to tar: ${tarPath}`);
+      await execAsync(`docker save -o ${tarPath} ${dockerImage}`, { timeout: 120000 });
+
+      // Step 3: Scan the tar archive with OSV Scanner
+      const scanCmd = [
+        'docker run --rm',
+        `-v ${tarPath}:/tmp/${tarFileName}`,
+        'ghcr.io/google/osv-scanner:latest',
+        'scan image',
+        '--archive',
+        '--format=json',
+        `/tmp/${tarFileName}`
+      ].join(' ');
+
+      console.log(`Running OSV scan command: ${scanCmd}`);
+      const { stdout, stderr } = await execAsync(scanCmd, { timeout: 180000 });
+
+      // Cleanup tar file
+      try {
+        await execAsync(`rm ${tarPath}`);
+      } catch (cleanupError) {
+        console.warn(`Warning: Failed to cleanup tar file ${tarPath}:`, cleanupError);
+      }
+
+      if (stdout && stdout.trim()) {
+        try {
+          const results = JSON.parse(stdout);
+          console.log(`OSV scan completed for ${dockerImage}`);
+          return {
+            success: true,
+            results
+          };
+        } catch (parseError) {
+          return {
+            success: false,
+            error: `Failed to parse OSV results: ${parseError}`
+          };
+        }
+      } else {
+        // No stdout might mean no vulnerabilities found
+        return {
+          success: true,
+          results: { results: [] }
+        };
+      }
+    } catch (error: any) {
+      // Check if error is due to no vulnerabilities found (which is actually success)
+      if (error.stdout && error.stdout.trim()) {
+        try {
+          const results = JSON.parse(error.stdout);
+          console.log(`OSV scan completed for ${dockerImage} (found vulnerabilities)`);
+          return {
+            success: true,
+            results
+          };
+        } catch (parseError) {
+          // Fall through to error case
+        }
+      }
+
+      return {
+        success: false,
+        error: error.message || String(error)
+      };
+    }
+  }
 }

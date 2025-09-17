@@ -145,7 +145,7 @@ export class MCPJsonAnalyzer {
     } else if (command === 'pip') {
       risks.push(...this.analyzePipExecution(serverName, args));
     } else if (command === 'docker') {
-      risks.push(...this.analyzeDockerExecution(serverName, args));
+      risks.push(...await this.analyzeDockerExecution(serverName, args));
       this.extractDockerImageInfo(args, packageAnalysis);
     }
 
@@ -355,7 +355,7 @@ export class MCPJsonAnalyzer {
     return risks;
   }
 
-  private analyzeDockerExecution(serverName: string, args: string[]): MCPRisk[] {
+  private async analyzeDockerExecution(serverName: string, args: string[]): Promise<MCPRisk[]> {
     const risks: MCPRisk[] = [];
 
     // Use the proper Docker command parser
@@ -422,32 +422,65 @@ export class MCPJsonAnalyzer {
       });
     }
 
-    // Check for untrusted/latest images
-    if (dockerImage.includes(':latest') || !dockerImage.includes(':')) {
+    // Perform actual OSV vulnerability scanning of the Docker image
+    try {
+      const osvResults = await this.sandboxManager.scanDockerImageWithOSV(dockerImage);
+
+      if (osvResults.totalVulnerabilities > 0) {
+        const { critical, high, medium, low } = osvResults.severityBreakdown;
+
+        if (critical > 0) {
+          risks.push({
+            type: 'PRIVILEGED_CONTAINER', // Reusing enum for critical vulns
+            severity: 'critical',
+            description: `Server "${serverName}" uses Docker image "${dockerImage}" with ${critical} CRITICAL vulnerabilities`,
+            evidence: osvResults.vulnerabilities
+              .filter(v => v.severity === 'critical')
+              .slice(0, 3)
+              .map(v => `${v.id}: ${v.summary}`),
+            mitigation: 'Update Docker image to a version without critical vulnerabilities',
+            aiConfidence: 1.0
+          });
+        }
+
+        if (high > 0) {
+          risks.push({
+            type: 'HOST_FILESYSTEM_ACCESS', // Reusing enum for high vulns
+            severity: 'high',
+            description: `Server "${serverName}" uses Docker image "${dockerImage}" with ${high} HIGH severity vulnerabilities`,
+            evidence: osvResults.vulnerabilities
+              .filter(v => v.severity === 'high')
+              .slice(0, 3)
+              .map(v => `${v.id}: ${v.summary}`),
+            mitigation: 'Update Docker image or apply security patches',
+            aiConfidence: 0.95
+          });
+        }
+
+        if (medium > 0 && critical === 0 && high === 0) {
+          risks.push({
+            type: 'UNVERIFIED_PACKAGE',
+            severity: 'medium',
+            description: `Server "${serverName}" uses Docker image "${dockerImage}" with ${medium} MEDIUM severity vulnerabilities`,
+            evidence: [`Total vulnerabilities: ${osvResults.totalVulnerabilities}`, `Medium: ${medium}, Low: ${low}`],
+            mitigation: 'Consider updating Docker image for improved security',
+            aiConfidence: 0.8
+          });
+        }
+      } else {
+        console.log(`✅ Docker image "${dockerImage}" - No vulnerabilities found`);
+      }
+    } catch (error) {
+      // If OSV scanning fails, don't flag the image as insecure - just log the issue
+      console.warn(`OSV scanning failed for Docker image "${dockerImage}": ${error instanceof Error ? error.message : String(error)}`);
       risks.push({
         type: 'UNVERIFIED_PACKAGE',
         severity: 'medium',
-        description: `Server "${serverName}" uses unpinned Docker image "${dockerImage}", potential supply chain risk`,
-        evidence: ['Unpinned Docker image detected', `Image: ${dockerImage}`],
-        mitigation: 'Use specific image tags with SHA256 digests for reproducible builds',
-        aiConfidence: 0.8
+        description: `Server "${serverName}" uses Docker image "${dockerImage}" - vulnerability scanning failed`,
+        evidence: ['OSV Scanner could not analyze image', `Error: ${error instanceof Error ? error.message : String(error)}`],
+        mitigation: 'Manually verify Docker image security or check OSV Scanner configuration',
+        aiConfidence: 0.5
       });
-    }
-
-    // Check for images from untrusted registries
-    if (!dockerImage.startsWith('docker.io/') && !dockerImage.startsWith('ghcr.io/') &&
-        !dockerImage.includes('/') && !dockerImage.startsWith('mcr.microsoft.com/')) {
-      // This is likely a Docker Hub image without explicit registry
-      if (!this.isTrustedDockerHubImage(dockerImage)) {
-        risks.push({
-          type: 'UNTRUSTED_NPX_DOWNLOAD', // Reusing enum for untrusted source
-          severity: 'medium',
-          description: `Server "${serverName}" uses potentially untrusted Docker image "${dockerImage}"`,
-          evidence: ['Unverified Docker image source', `Image: ${dockerImage}`],
-          mitigation: 'Use images from trusted registries with verified publishers',
-          aiConfidence: 0.7
-        });
-      }
     }
 
     return risks;
@@ -596,10 +629,6 @@ export class MCPJsonAnalyzer {
       }
 
       packageAnalysis.untrustedDownloads.push(dockerImage);
-
-      // TODO: OSV Scanner integration for Docker image scanning
-      // This would call OSV Scanner's container image scanning capability:
-      // await this.scanDockerImageWithOSV(dockerImage, packageAnalysis);
     }
   }
 
@@ -787,21 +816,4 @@ export class MCPJsonAnalyzer {
     };
   }
 
-  // Future OSV Scanner integration for Docker image vulnerability scanning
-  private async scanDockerImageWithOSV(dockerImage: string, packageAnalysis: any): Promise<void> {
-    // TODO: Integrate with OSV Scanner for container image scanning
-    // This would:
-    // 1. Use sandboxManager to scan Docker image with OSV Scanner
-    // 2. Parse vulnerability results for the image layers
-    // 3. Add findings to packageAnalysis.suspiciousPackages if vulnerabilities found
-    // 4. Potentially trigger dynamic container analysis in det chamber/sandbox
-    //
-    // Example implementation:
-    // const osvResult = await this.sandboxManager.scanDockerImageWithOSV(dockerImage);
-    // if (osvResult.vulnerabilities.length > 0) {
-    //   packageAnalysis.suspiciousPackages.push(`${dockerImage} (${osvResult.vulnerabilities.length} CVEs)`);
-    // }
-
-    console.log(`Docker image OSV scanning not yet implemented for: ${dockerImage}`);
-  }
 }

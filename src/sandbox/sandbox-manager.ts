@@ -231,4 +231,102 @@ export class SandboxManager {
       responses: []
     };
   }
+
+  /**
+   * Scan Docker image for vulnerabilities using OSV Scanner
+   */
+  async scanDockerImageWithOSV(dockerImage: string): Promise<{
+    vulnerabilities: Array<{
+      id: string;
+      severity?: string;
+      summary: string;
+      affected: Array<{
+        package: { name: string; ecosystem: string };
+        versions: string[];
+      }>;
+    }>;
+    totalVulnerabilities: number;
+    severityBreakdown: {
+      critical: number;
+      high: number;
+      medium: number;
+      low: number;
+    };
+  }> {
+    if (!this.activeProvider) {
+      throw new Error('Sandbox manager not initialized');
+    }
+
+    try {
+      console.log(`Scanning Docker image: ${dockerImage}`);
+
+      // Use the Docker provider's OSV scanning capability
+      if (this.activeProvider?.name === 'docker') {
+        const dockerProvider = this.activeProvider as any;
+        if (dockerProvider.scanDockerImageWithOSV) {
+          const scanResult = await dockerProvider.scanDockerImageWithOSV(dockerImage);
+
+          if (!scanResult.success) {
+            throw new Error(scanResult.error || 'Docker image OSV scan failed');
+          }
+
+          const osvData = scanResult.results;
+          if (!osvData || !osvData.results || osvData.results.length === 0) {
+            // No vulnerabilities found
+            console.log(`✅ Docker image "${dockerImage}" - No vulnerabilities found`);
+            return {
+              vulnerabilities: [],
+              totalVulnerabilities: 0,
+              severityBreakdown: { critical: 0, high: 0, medium: 0, low: 0 }
+            };
+          }
+
+          // Extract and categorize vulnerabilities
+          const vulnerabilities = osvData.results || [];
+          let critical = 0, high = 0, medium = 0, low = 0;
+
+          const processedVulns = vulnerabilities.flatMap((result: any) => {
+        return (result.packages || []).flatMap((pkg: any) => {
+          return (pkg.vulnerabilities || []).map((vuln: any) => {
+            // Categorize severity
+            const severity = vuln.database_specific?.severity?.toLowerCase() || 'unknown';
+            switch (severity) {
+              case 'critical': critical++; break;
+              case 'high': high++; break;
+              case 'medium': medium++; break;
+              case 'low': low++; break;
+              default: medium++; // Default unknown to medium
+            }
+
+            return {
+              id: vuln.id,
+              severity: severity,
+              summary: vuln.summary || 'No summary available',
+              affected: vuln.affected || []
+            };
+          });
+        });
+      });
+
+          const totalVulnerabilities = processedVulns.length;
+
+          console.log(`OSV scan complete: ${totalVulnerabilities} vulnerabilities found (${critical} critical, ${high} high, ${medium} medium, ${low} low)`);
+
+          return {
+            vulnerabilities: processedVulns,
+            totalVulnerabilities,
+            severityBreakdown: { critical, high, medium, low }
+          };
+        } else {
+          throw new Error('Docker provider does not support image OSV scanning');
+        }
+      } else {
+        throw new Error('Docker image scanning is only supported with Docker sandbox provider');
+      }
+
+    } catch (error) {
+      console.error(`Docker image OSV scan failed: ${error instanceof Error ? error.message : String(error)}`);
+      throw error;
+    }
+  }
 }
