@@ -37,6 +37,7 @@
     "@modelcontextprotocol/sdk": "^1.18.0",
     "ai": "^5.0.44",
     "dotenv": "^17.2.2",
+    "open": "^10.2.0",
     "zod": "^4.1.8"
   }
 }

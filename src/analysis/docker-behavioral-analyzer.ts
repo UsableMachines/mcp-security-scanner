@@ -68,7 +68,7 @@ export interface DockerBehavioralAnalysisResult {
       evidence: string[];
       toolName?: string;
       context: string;
-      confidence: number;
+      confidence?: number; // TODO: Confidence calculation feature requires investigation
     }>;
     summary: string;
     recommendations: string[];
@@ -169,6 +169,22 @@ export class DockerBehavioralAnalyzer {
     // Build Docker command for MCP server
     const dockerArgs = this.buildDockerMCPArgs(config);
     console.log(`🔍 Docker command: docker ${dockerArgs.join(' ')}`);
+
+    // Check for mcp-remote and stop immediately
+    if (config.environment?.MCP_PROXY_PACKAGE === 'mcp-remote') {
+      console.log(`\n🚨 ANALYSIS HALTED: mcp-remote detected`);
+      console.log(`   Connection attempts with mcp-remote proxy are blocked for security`);
+      console.log(`   Reason: mcp-remote completely obfuscates authentication and poses critical security risks`);
+      console.log(`   Recommendation: Use direct API integration instead of mcp-remote bridge`);
+
+      return {
+        serverInfo: { name: config.serverName },
+        tools: [],
+        resources: [],
+        prompts: [],
+        executionLogs: ['Analysis blocked: mcp-remote proxy detected. Use direct API integration instead.']
+      };
+    }
 
     let client: any = null;
 
@@ -421,7 +437,7 @@ export class DockerBehavioralAnalyzer {
    */
   private isAuthObfuscated(proxyPackage?: string): boolean {
     const obfuscatingPackages = [
-      'mcp-remote', // Linear's obfuscating bridge
+      'mcp-remote', // Generic obfuscating bridge pattern
       // Add other packages known to completely hide auth flow
     ];
 
@@ -438,9 +454,9 @@ export class DockerBehavioralAnalyzer {
    * Handle authentication for MCP server based on detected method and context
    */
   private async handleAuthentication(config: DockerMCPConfig, authInfo: ReturnType<typeof this.detectAuthRequirement>): Promise<void> {
-    // Special case: Linear's mcp-remote is fundamentally broken
-    if (authInfo.authContext.serviceName === 'linear' && authInfo.authContext.isObfuscated) {
-      await this.handleLinearMcpRemoteRejection(config);
+    // Special case: mcp-remote proxy is fundamentally broken
+    if (authInfo.authContext.isObfuscated && config.environment?.MCP_PROXY_PACKAGE === 'mcp-remote') {
+      await this.handleMcpRemoteRejection(config, authInfo.authContext.serviceName);
       return;
     }
 
@@ -463,23 +479,26 @@ export class DockerBehavioralAnalyzer {
   }
 
   /**
-   * Handle Linear's mcp-remote - warn about broken OAuth but proceed with analysis
+   * Handle mcp-remote proxy - warn about broken OAuth but proceed with analysis
    */
-  private async handleLinearMcpRemoteRejection(config: DockerMCPConfig): Promise<void> {
-    console.log(`\n🚨 CRITICAL: Linear mcp-remote Bridge Detected`);
-    console.log(`   This specific bridge is fundamentally broken and should be avoided.`);
-    console.log(`\n❌ Known Issues with Linear's mcp-remote:`);
+  private async handleMcpRemoteRejection(config: DockerMCPConfig, serviceName?: string): Promise<void> {
+    console.log(`\n🚨 CRITICAL: mcp-remote Bridge Detected`);
+    console.log(`   This proxy bridge is fundamentally broken and should be avoided.`);
+    console.log(`\n❌ Known Issues with mcp-remote proxy:`);
     console.log(`   • OAuth approval process is massively delayed`);
     console.log(`   • False positive connections without completing auth`);
     console.log(`   • Complete obfuscation of permission scopes`);
     console.log(`   • No visibility into token handling or storage`);
     console.log(`\n✅ RECOMMENDED ALTERNATIVES:`);
-    console.log(`   • Use Linear's direct API with API keys: https://linear.app/settings/api`);
+    if (serviceName) {
+      console.log(`   • Use ${serviceName}'s direct API with API keys if available`);
+      console.log(`   • Check ${serviceName} documentation for direct MCP integration`);
+    }
     console.log(`   • Use transparent proxy packages like mcp-proxy instead of mcp-remote`);
-    console.log(`   • Implement direct Linear GraphQL integration`);
+    console.log(`   • Implement direct service integration without proxy bridges`);
 
     console.log(`\n⚠️  WARNING: Proceeding with analysis of fundamentally flawed authentication bridge`);
-    console.log(`   • Analysis will likely fail due to Linear's broken OAuth implementation`);
+    console.log(`   • Analysis will likely fail due to mcp-remote's broken OAuth implementation`);
     console.log(`   • Security risks will be documented in final report`);
     console.log(`   • Consider this bridge unsuitable for production use`);
   }
@@ -922,7 +941,7 @@ export class DockerBehavioralAnalyzer {
       evidence: string[];
       toolName?: string;
       context: string;
-      confidence: number;
+      confidence?: number; // TODO: Confidence calculation feature requires investigation
     }>;
     summary: string;
     recommendations: string[];

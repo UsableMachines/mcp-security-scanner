@@ -42,7 +42,7 @@ export interface ParallelAnalysisResult {
       evidence: string[];
       toolName?: string;
       context: string;
-      confidence: number;
+      confidence?: number; // TODO: Confidence calculation feature requires investigation
     }>;
     summary: string;
   };
@@ -324,12 +324,23 @@ export class ParallelAnalysisOrchestrator {
         }));
       }
 
+      // Remote MCP server analysis (if remote servers found)
+      if (remoteConfigs.length > 0) {
+        tasks.push(this.executeTask('remote_mcp_analysis', async () => {
+          console.log(`🌐 Found ${remoteConfigs.length} remote MCP servers for behavioral analysis`);
+          const { RemoteMCPAnalyzer } = require('./remote-mcp-analyzer');
+          const remoteAnalyzer = new RemoteMCPAnalyzer();
+          return await remoteAnalyzer.analyzeRemoteMCPServersInParallel(remoteConfigs);
+        }));
+      }
+
       console.log(`🔄 Executing ${tasks.length} JSON analysis tasks in parallel...`);
       const results = await Promise.allSettled(tasks);
 
       // Process results
       let jsonAnalysis: MCPJsonAnalysis | undefined;
       let dockerBehavioralResults: DockerBehavioralAnalysisResult[] | undefined;
+      let remoteMCPResults: any[] | undefined;
 
       for (const result of results) {
         if (result.status === 'fulfilled') {
@@ -339,9 +350,11 @@ export class ParallelAnalysisOrchestrator {
             jsonAnalysis = taskResult as MCPJsonAnalysis;
           } else if (type === 'docker_behavioral') {
             dockerBehavioralResults = taskResult as DockerBehavioralAnalysisResult[];
+          } else if (type === 'remote_mcp_analysis') {
+            remoteMCPResults = taskResult as any[];
           }
         } else {
-          console.error('❌ JSON analysis task failed:', result.reason);
+          console.error('❌ Analysis task failed:', result.reason);
         }
       }
 
@@ -356,11 +369,46 @@ export class ParallelAnalysisOrchestrator {
         console.log(`🐳 Docker behavioral analysis: ${dockerBehavioralResults.length} servers analyzed`);
       }
 
-      // Merge results
-      return {
+      if (remoteMCPResults) {
+        console.log(`🌐 Remote MCP analysis: ${remoteMCPResults.length} servers analyzed`);
+      }
+
+      // Extract prompt security analysis from Docker behavioral results
+      let mcpPromptSecurityAnalysis = undefined;
+      if (dockerBehavioralResults && dockerBehavioralResults.length > 0) {
+        // Find the first server with prompt security analysis results
+        const serverWithPrompts = dockerBehavioralResults.find(server =>
+          server.protocolData?.tools && server.protocolData.tools.length > 0
+        );
+
+        if (serverWithPrompts) {
+          // Extract prompt security risks from behavioral analysis
+          const promptRisks = serverWithPrompts.securityAnalysis.risks.filter((risk: any) =>
+            ['tool_poisoning', 'tool_shadowing', 'data_exfiltration', 'cross_origin_violation', 'sensitive_file_access'].includes(risk.type)
+          );
+
+          mcpPromptSecurityAnalysis = {
+            serverName: serverWithPrompts.serverName,
+            totalTools: serverWithPrompts.protocolData?.tools?.length || 0,
+            risks: promptRisks,
+            summary: `Analyzed ${serverWithPrompts.protocolData?.tools?.length || 0} tools, found ${promptRisks.length} prompt security risks`
+          };
+        }
+      }
+
+      // Merge results - add remote analysis and prompt security analysis
+
+      const result = {
         ...jsonAnalysis,
-        dockerBehavioralAnalysis: dockerBehavioralResults
-      };
+        dockerBehavioralAnalysis: dockerBehavioralResults,
+        mcpPromptSecurityAnalysis
+      } as any;
+
+      if (remoteMCPResults) {
+        result.remoteMCPAnalysis = remoteMCPResults;
+      }
+
+      return result;
 
     } catch (error) {
       if (error instanceof Error && error.message === 'LOCAL_EXECUTION_REDIRECT') {
@@ -504,7 +552,9 @@ export class ParallelAnalysisOrchestrator {
 
     const urlPatterns = [
       /^https?:\/\//, /^wss?:\/\//, /\/sse$/, /\/events$/, /\/api\/mcp/,
-      /\.linear\.app/, /\.anthropic\.com/, /\.openai\.com/
+      /\.(app|com|io|dev|net|org)$/, // Generic domain endings instead of hardcoded domains
+      /mcp\./,  // MCP-related subdomains (mcp.linear.app, mcp.company.com, etc.)
+      /api\./   // API subdomains (api.service.com, etc.)
     ];
 
     // Check for proxy packages in args
@@ -645,7 +695,7 @@ export class ParallelAnalysisOrchestrator {
   private detectAuthType(envKey: string, envValue: string): {
     type: 'api_key' | 'bearer_token' | 'jwt_token' | 'oauth_token' | 'enterprise_auth' | 'generic_token' | 'unknown';
     needsReplacement: boolean;
-    confidence: number;
+    confidence?: number; // TODO: Confidence calculation feature requires investigation
   } {
     const key = envKey.toLowerCase();
     const value = envValue?.toLowerCase() || '';
@@ -1068,7 +1118,7 @@ The repository is available in a Docker volume "${volumeName}" mounted at /src. 
       evidence: string[];
       toolName?: string;
       context: string;
-      confidence: number;
+      confidence?: number; // TODO: Confidence calculation feature requires investigation
     }>;
     summary: string;
   } | undefined> {

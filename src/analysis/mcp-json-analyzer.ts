@@ -134,7 +134,7 @@ export class MCPJsonAnalyzer {
       const args = Array.isArray(serverConfig.args) ? serverConfig.args : [];
 
       // 1. Check for known proxy/bridge package names
-      const isProxyPackage = this.isProxyBridgePackage(args);
+      const detectedProxyPackage = this.detectProxyBridgePackage(args);
 
       // 2. Check for remote URLs in arguments
       const hasRemoteUrl = this.hasRemoteUrlInArgs(args);
@@ -142,9 +142,10 @@ export class MCPJsonAnalyzer {
       // 3. Check for transport/bridge keywords
       const hasBridgeKeywords = this.hasBridgeTransportKeywords(args);
 
-      if (isProxyPackage || hasRemoteUrl || hasBridgeKeywords) {
-        console.log(`🔗 Detected proxy/bridge server: ${serverName}`);
-        console.log(`   Package: ${isProxyPackage ? 'YES' : 'NO'} | URL: ${hasRemoteUrl ? 'YES' : 'NO'} | Transport: ${hasBridgeKeywords ? 'YES' : 'NO'}`);
+      if (detectedProxyPackage || hasRemoteUrl || hasBridgeKeywords) {
+        const proxyName = detectedProxyPackage || 'remote-bridge';
+        console.log(`🔗 Detected proxy/bridge server: ${proxyName} (serving ${serverName})`);
+        console.log(`   Package: ${detectedProxyPackage ? detectedProxyPackage : 'NO'} | URL: ${hasRemoteUrl ? 'YES' : 'NO'} | Transport: ${hasBridgeKeywords ? 'YES' : 'NO'}`);
         console.log(`   Command: ${serverConfig.command} ${args.join(' ')}`);
         proxyServers.push([serverName, serverConfig]);
       } else if (serverConfig.command && serverConfig.command !== 'docker') {
@@ -159,12 +160,19 @@ export class MCPJsonAnalyzer {
   /**
    * Check if args contain known proxy/bridge package names
    */
-  private isProxyBridgePackage(args: string[]): boolean {
+  private detectProxyBridgePackage(args: string[]): string | null {
+    // TODO: TEMPORARY HARDCODED LIST - This should be refactored to pattern matching in the future
+    // Currently hardcoded because:
+    // 1. Only handful of proxy/bridge methods exist today (STDIO, Docker, Remote)
+    // 2. Each has specific implementation that needs to be tracked
+    // 3. Pattern matching would miss cases like "fastMCP" (no mcp- prefix)
+    // 4. Need to account for all current proxy/bridge implementations
+    // FUTURE: Engineer proper pattern matching system that can detect proxy behavior
     const proxyPackagePatterns = [
-      'mcp-remote',           // Linear's pattern
+      'mcp-remote',           // Generic remote bridge pattern
       'mcp-proxy',            // Generic proxy
       '@sparfenyuk/mcp-proxy', // Specific proxy package
-      'fastmcp-proxy',        // FastMCP proxy
+      'fastmcp-proxy',        // FastMCP proxy (proves naming inconsistency)
       'mcp-bridge',           // Bridge patterns
       'mcp-connector',        // Connector patterns
       'mcp-gateway',          // Gateway patterns
@@ -174,11 +182,14 @@ export class MCPJsonAnalyzer {
       'proxy-mcp'             // Alternative naming
     ];
 
-    return args.some(arg =>
-      proxyPackagePatterns.some(pattern =>
-        arg.includes(pattern) || arg === pattern
-      )
-    );
+    for (const arg of args) {
+      for (const pattern of proxyPackagePatterns) {
+        if (arg.includes(pattern) || arg === pattern) {
+          return pattern;
+        }
+      }
+    }
+    return null;
   }
 
   /**
@@ -491,7 +502,8 @@ export class MCPJsonAnalyzer {
     const risks: MCPRisk[] = [];
 
     // Check for proxy/bridge packages with authentication obfuscation
-    if (this.isProxyBridgePackage(args)) {
+    const detectedProxy = this.detectProxyBridgePackage(args);
+    if (detectedProxy) {
       const packageName = this.extractPackageName(args);
       const hasRemoteUrl = this.hasRemoteUrlInArgs(args);
 
@@ -787,9 +799,13 @@ export class MCPJsonAnalyzer {
         packageAnalysis.bridgePackages.push(packageName);
       }
 
-      // Check for typosquatting patterns
-      const suspiciousPatterns = ['mcp-', '@modelcontextprotocol/', 'anthropic'];
-      if (suspiciousPatterns.some(pattern => packageName.includes(pattern))) {
+      // TODO: TEMPORARY HARDCODED LIST - Should be refactored to pattern matching
+      // Check for legitimate MCP package patterns to filter out false positives
+      const legitimateMcpPatterns = ['mcp-', '@modelcontextprotocol/'];
+      // Pattern-based detection instead of hardcoded company names
+      const hasLegitimatePattern = legitimateMcpPatterns.some(pattern => packageName.includes(pattern)) ||
+                                 /^@[a-z]+\/mcp-/.test(packageName); // Scoped MCP packages
+      if (hasLegitimatePattern) {
         // This is expected, but we track it
       } else {
         // Unusual package name
@@ -853,9 +869,13 @@ export class MCPJsonAnalyzer {
         packageAnalysis.bridgePackages.push(dockerImage);
       }
 
-      // Check for suspicious patterns
-      const suspiciousPatterns = ['mcp-', 'anthropic'];
-      if (!suspiciousPatterns.some(pattern => dockerImage.includes(pattern))) {
+      // TODO: TEMPORARY HARDCODED LIST - Should be refactored to pattern matching
+      // Check for legitimate MCP Docker image patterns
+      const legitimateMcpPatterns = ['mcp-', 'mcp/'];
+      // Pattern-based detection instead of hardcoded company names
+      const hasLegitimatePattern = legitimateMcpPatterns.some(pattern => dockerImage.includes(pattern)) ||
+                                 /\/mcp-/.test(dockerImage); // Images with mcp- in path
+      if (!hasLegitimatePattern) {
         // Unusual Docker image name for MCP context
         packageAnalysis.suspiciousPackages.push(dockerImage);
       }

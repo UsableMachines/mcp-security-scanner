@@ -38,7 +38,7 @@ export interface PromptSecurityRisk {
   evidence: string[];
   toolName?: string;
   context: string;
-  confidence: number; // 0-1
+  confidence?: number; // TODO: Confidence calculation feature requires investigation into proper metrics and calculation methods
   aiConfidence?: number; // Optional AI assessment
 }
 
@@ -51,12 +51,35 @@ export interface PromptSecurityAnalysisResult {
 }
 
 export class MCPPromptSecurityAnalyzer {
-  // Known MCP server names for cross-origin detection
-  private readonly KNOWN_MCP_SERVERS = [
-    'github', 'linear', 'slack', 'notion', 'gmail', 'gdrive', 'postgres',
-    'sqlite', 'filesystem', 'web-search', 'browser', 'kubernetes', 'docker',
-    'aws', 'gcp', 'azure', 'redis', 'mongodb', 'mysql', 'elasticsearch'
-  ];
+  /**
+   * Pattern-based cross-origin detection instead of hardcoded server names
+   * Detects references to external services using generic patterns
+   */
+  private detectCrossOriginReferences(description: string, currentServerName: string): string[] {
+    const references: string[] = [];
+
+    // Pattern 1: service-server, service-api, service-mcp formats
+    const servicePatterns = description.match(/\b([a-z]{3,}[\s-]*(server|api|service|mcp))\b/gi) || [];
+
+    // Pattern 2: domain references (company.com, service.app, etc.)
+    const domainPatterns = description.match(/\b([a-z]{3,})\.(com|app|io|dev|net|org)\b/gi) || [];
+
+    // Pattern 3: npm package patterns (@company/mcp-, mcp-service, etc.)
+    const packagePatterns = description.match(/\b(@[a-z]+\/mcp-[a-z]+|mcp-[a-z]+)\b/gi) || [];
+
+    // Pattern 4: common service action verbs (connect to, sync with, etc.)
+    const actionPatterns = description.match(/\b(connect to|sync with|integrate with|fetch from|push to)\s+([a-z]{3,})\b/gi) || [];
+
+    // Combine all patterns and extract service names
+    [...servicePatterns, ...domainPatterns, ...packagePatterns, ...actionPatterns].forEach(match => {
+      const normalized = match.toLowerCase().replace(/[^a-z]/g, '');
+      if (normalized !== currentServerName.toLowerCase() && normalized.length > 2) {
+        references.push(normalized);
+      }
+    });
+
+    return [...new Set(references)]; // Remove duplicates
+  }
 
   // Suspicious parameter names that could be used for data exfiltration
   private readonly EXFILTRATION_PARAMS = [
@@ -185,7 +208,7 @@ export class MCPPromptSecurityAnalyzer {
           evidence: [match[0]],
           toolName: tool.name,
           context: `Found in tool description: "${description.substring(Math.max(0, match.index! - 50), match.index! + 50)}..."`,
-          confidence: 0.9 // High confidence for pattern matching
+          // TODO: Confidence calculation feature requires investigation into proper metrics and calculation methods
         });
       }
     }
@@ -198,8 +221,8 @@ export class MCPPromptSecurityAnalyzer {
         description: `Tool "${tool.name}" description contains suspicious formatting that could hide instructions`,
         evidence: this.extractSuspiciousFormatting(description),
         toolName: tool.name,
-        context: description,
-        confidence: 0.7
+        context: description
+        // TODO: Confidence calculation feature requires investigation into proper metrics and calculation methods
       });
     }
 
@@ -222,8 +245,8 @@ export class MCPPromptSecurityAnalyzer {
           description: `Tool "${tool.name}" may attempt to shadow/modify other tools`,
           evidence: [match[0]],
           toolName: tool.name,
-          context: `Shadowing pattern found: "${match[0]}"`,
-          confidence: 0.85
+          context: `Shadowing pattern found: "${match[0]}"`
+          // TODO: Confidence calculation feature requires investigation into proper metrics and calculation methods
         });
       }
     }
@@ -237,7 +260,7 @@ export class MCPPromptSecurityAnalyzer {
         evidence: [tool.name],
         toolName: tool.name,
         context: 'Tool name matches common system utilities',
-        confidence: 0.6
+        // TODO: Confidence calculation feature requires investigation into proper metrics and calculation methods
       });
     }
 
@@ -284,7 +307,7 @@ export class MCPPromptSecurityAnalyzer {
         evidence: suspiciousParams,
         toolName: tool.name,
         context: `Suspicious parameters: ${suspiciousParams.join(', ')}`,
-        confidence: 0.75
+        // TODO: Confidence calculation feature requires investigation into proper metrics and calculation methods
       });
     }
 
@@ -323,7 +346,7 @@ export class MCPPromptSecurityAnalyzer {
         evidence: sensitiveMatches,
         toolName: tool.name,
         context: 'References to sensitive file paths detected',
-        confidence: 0.9
+        // TODO: Confidence calculation feature requires investigation into proper metrics and calculation methods
       });
     }
 
@@ -336,24 +359,19 @@ export class MCPPromptSecurityAnalyzer {
   private detectCrossOriginViolations(serverName: string, tool: MCPTool): PromptSecurityRisk[] {
     const risks: PromptSecurityRisk[] = [];
     const description = tool.description || '';
-    const violations: string[] = [];
 
-    for (const knownServer of this.KNOWN_MCP_SERVERS) {
-      if (serverName.toLowerCase() !== knownServer.toLowerCase() &&
-          description.toLowerCase().includes(knownServer.toLowerCase())) {
-        violations.push(knownServer);
-      }
-    }
+    // Use pattern-based detection instead of hardcoded server list
+    const violations = this.detectCrossOriginReferences(description, serverName);
 
     if (violations.length > 0) {
       risks.push({
         type: 'cross_origin_violation',
         severity: 'medium',
-        description: `Tool "${tool.name}" references other MCP servers`,
+        description: `Tool "${tool.name}" references other MCP servers or external services`,
         evidence: violations,
         toolName: tool.name,
         context: `References to: ${violations.join(', ')}`,
-        confidence: 0.7
+        // TODO: Confidence calculation feature requires investigation into proper metrics and calculation methods
       });
     }
 
@@ -504,7 +522,10 @@ export class MCPPromptSecurityAnalyzer {
           output += `${detailPrefix}🔍 Evidence: ${risk.evidence.join(', ')}\n`;
         }
 
-        output += `${detailPrefix}📊 Confidence: ${Math.round(risk.confidence * 100)}%\n`;
+        // TODO: Confidence calculation feature requires investigation into proper metrics and calculation methods
+        if (risk.confidence !== undefined) {
+          output += `${detailPrefix}📊 Confidence: ${Math.round(risk.confidence * 100)}%\n`;
+        }
 
         if (riskIndex < risks.length - 1) {
           output += `${isLastTool ? '    ' : '│   '}│\n`;

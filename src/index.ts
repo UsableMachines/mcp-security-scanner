@@ -59,7 +59,7 @@ export interface ComprehensiveScanResult {
       evidence: string[];
       toolName?: string;
       context: string;
-      confidence: number;
+      confidence?: number; // TODO: Confidence calculation feature requires investigation
     }>;
     summary: string;
   };
@@ -172,6 +172,7 @@ export class MCPSecurityScanner {
     // Black Box MCP JSON Analysis with Docker Behavioral Analysis
     let mcpJsonAnalysis: MCPJsonAnalysis | undefined;
     let dockerBehavioralAnalysis: any[] | undefined;
+    let mcpPromptSecurityAnalysis: any;
     if (scanMode === 'json' && options.mcpJsonConfig) {
       try {
         // Check if API key is needed for Docker/remote servers before starting analysis
@@ -182,6 +183,8 @@ export class MCPSecurityScanner {
         const enhancedAnalysis = await this.parallelOrchestrator.executeMCPJsonAnalysis(options.mcpJsonConfig, { apiKey: options.apiKey });
         mcpJsonAnalysis = enhancedAnalysis;
         dockerBehavioralAnalysis = (enhancedAnalysis as any).dockerBehavioralAnalysis;
+        // Extract mcpPromptSecurityAnalysis from enhanced JSON analysis
+        mcpPromptSecurityAnalysis = (enhancedAnalysis as any).mcpPromptSecurityAnalysis;
 
         console.log(`MCP JSON analysis complete: ${mcpJsonAnalysis.risks.length} security risks identified`);
         if (dockerBehavioralAnalysis && dockerBehavioralAnalysis.length > 0) {
@@ -209,7 +212,7 @@ export class MCPSecurityScanner {
       parallelResults?.sourceCodeAnalysis,
       behavioralAnalysis,
       mcpJsonAnalysis,
-      parallelResults?.mcpPromptSecurityAnalysis
+      mcpPromptSecurityAnalysis || parallelResults?.mcpPromptSecurityAnalysis
     );
 
     // Add Docker behavioral analysis results to the result

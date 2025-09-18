@@ -1,180 +1,312 @@
-    'command_injection',
-    'credential_exposure',
-    'privilege_escalation',
-    'data_exfiltration',
-    'network_abuse',
-    'prompt_injection',
-    'authentication_bypass',
-    'tool_poisoning'
+yarn node mcp_scan_cli.js --json
+[dotenv@17.2.2] injecting env (5) from .env -- tip: 📡 auto-backup env with Radar: https://dotenvx.com/radar
+🔒 MCP Security Scanner v0.1.0
+Analysis: Black Box (MCP JSON configuration)
 
-Based on my research of Anthropic's official MCP documentation and specifications, here are the key security landmines and attack vectors for black box MCP server
-  analysis:
+Please paste your MCP JSON configuration below.
+Press Ctrl+D (Linux/Mac) or Ctrl+Z then Enter (Windows) when finished:
 
-  ---
-  1. 3P Remote Hosted MCP Servers
-
-  Examples: Linear, Asana, Zapier, Square, PayPal, Cloudflare
-  Transport: HTTPS + SSE at endpoints like https://mcp.linear.app/sse
-
-  Critical Security Issues:
-
-  - 🚨 No Authentication Standardization: Each provider implements their own OAuth/API key schemes
-  - 🚨 Session Hijacking: SSE streams use predictable session IDs that can be guessed
-  - 🚨 DNS Rebinding: Servers must validate Origin headers but many don't
-  - 🚨 Cross-Origin Attacks: CORS misconfiguration allows unauthorized domains
-  - 🚨 Token Exposure: Authorization tokens passed in clear text headers
-
-  Black Box Detection Patterns:
-
-  // Analyze MCP server JSON for these red flags:
-  {
-    "type": "url",
-    "url": "https://mcp.example.com/sse",
-    "authorization_token": "EXPOSED_TOKEN_HERE"  // ⚠️ Hardcoded credentials
+{
+  "mcpServers": {
+    "brave-search": {
+      "command": "docker",
+      "args": ["run", "-i", "--rm", "-e", "BRAVE_API_KEY", "mcp/brave-search"],
+      "env": {
+        "BRAVE_API_KEY": "YOUR_API_KEY_HERE"
+      }
+    }
   }
+}
 
-  ---
-  2. Local Docker Container MCP Servers
+JSON received, parsing...
 
-  Transport: stdio or HTTP localhost
-  Examples: Postgres, filesystem, GitHub integration
+JSON Config: {
+  "mcpServers": {
+    "brave-search": {
+      "command": "docker",
+      "args": ["run", "-i", "--...
+=====================================
 
-  Critical Security Issues:
+Initializing scanner...
+MCP Security Scanner initialized
+Initialized sandbox provider: docker
+AI Router initialized with provider: anthropic
+AI Analyzer initialized with provider: anthropic
+MCP Security Scanner Configuration:
+- AI Provider: anthropic
+- Sandbox Provider: auto
+- Kindo Model: claude-sonnet-4-20250514
+- Scanner Timeout: 300000ms
+- Max Code Size: 50000 bytes
+- Network Analysis: enabled
+- Log Level: info
+- Kindo API: configured
+- Daytona API: not configured
+Scanner ready - Sandbox: docker, AI: anthropic
+Starting security analysis...
 
-  - 🚨 Container Escape: MCP servers run with excessive Docker privileges
-  - 🚨 Host Filesystem Access: Volume mounts expose sensitive directories
-  - 🚨 Network Access: Containers can reach internal networks
-  - 🚨 Resource Exhaustion: No limits on memory/CPU consumption
+Starting JSON analysis of MCP server: json-analysis-mode
+⚠️  Behavioral analysis skipped: JSON-only analysis mode
 
-  Black Box Detection Patterns:
+🔑 API Key Required
+   Detected servers that need authentication
+Enter API key: BSAzlbVXTX867mJYZ6-2RMg1AC0n7ae
+✅ API key provided
+🔍 Running enhanced MCP JSON configuration analysis...
+📦 Extracted 1 Docker configs for behavioral analysis
+🔑 Injecting API key into 1 Docker configurations...
+🔑 Detected api_key pattern: BRAVE_API_KEY (was: "YOUR_API_KEY_HERE")
+✅ Injected API key into 1 environment variables for: brave-search
+Starting static pattern analysis of MCP configuration...
+Analyzing server: brave-search
+Analyzing local execution configuration: brave-search
+DEBUG: Command="docker", Args=["run","-i","--rm","-e","BRAVE_API_KEY","mcp/brave-search"]
+DEBUG: Docker parsing result for brave-search: {
+  image: 'mcp/brave-search',
+  isPrivileged: false,
+  volumes: [],
+  networkMode: null
+}
+Scanning Docker image: mcp/brave-search
+Scanning Docker image: mcp/brave-search using OSV Scanner Docker image
+Pulling Docker image: mcp/brave-search
+🐳 Found 1 Docker MCP servers for behavioral analysis
+🐳 Starting parallel Docker behavioral analysis for 1 servers...
+🔍 Analyzing Docker MCP server: brave-search (mcp/brave-search)
+🚀 Starting Docker MCP server: mcp/brave-search
+🔍 Docker command: docker run --rm -i -e BRAVE_API_KEY=BSAzlbVXTX867mJYZ6-2RMg1AC0n7ae mcp/brave-search
+🤝 Establishing MCP connection to brave-search...
+🔄 Executing 2 JSON analysis tasks in parallel...
+🔍 Discovering server capabilities...
+✅ Discovery complete: 6 tools, 0 resources, 0 prompts
+🤖 Running AI analysis on protocol data for brave-search...
+🔍 Running MCP prompt security analysis for server: brave-search
+🔍 Analyzing MCP server "brave-search" for prompt security vulnerabilities...
+   Tools to analyze: 6
+Saving Docker image to tar: /tmp/mcp_brave-search.tar
+Running OSV scan command: docker run --rm -v /tmp/mcp_brave-search.tar:/tmp/mcp_brave-search.tar ghcr.io/google/osv-scanner:latest scan image --archive --format=json /tmp/mcp_brave-search.tar
+OSV scan completed for mcp/brave-search
+✅ Docker image "mcp/brave-search" - No vulnerabilities found
+✅ Docker image "mcp/brave-search" - No vulnerabilities found
+✅ Docker analysis completed for: brave-search
+🐳 Parallel Docker analysis complete: 1/1 successful
+✅ Enhanced MCP JSON analysis completed in 32572ms
+🐳 Docker behavioral analysis: 1 servers analyzed
+MCP JSON analysis complete: 0 security risks identified
+🐳 Docker behavioral analysis: 1 Docker servers analyzed with runtime behavior
+Scan complete in 40033ms - Overall risk: HIGH
 
-  {
-    "command": "docker",
-    "args": ["run", "--privileged", "-v", "/:/host", "malicious-mcp"],  // ⚠️ Dangerous
-    "env": {"API_KEY": "exposed"}
-  }
+=====================================
+🔍 SECURITY ANALYSIS COMPLETE
+=====================================
 
-  ---
-  3. Local Installation/Execution MCP Servers
+📊 SUMMARY:
+   Analysis Mode: JSON
+   Overall Risk:  HIGH
+   Duration:      40033ms
+   Timestamp:     2025-09-18T01:02:46.706Z
 
-  Transport: stdio
-  Examples: npx @modelcontextprotocol/server-*, Python packages
+🔬 BEHAVIORAL ANALYSIS:
+   ⚠️  Skipped (static-only analysis mode)
 
-  Critical Security Issues:
+🐳 DOCKER BEHAVIORAL ANALYSIS:
+   Docker Servers:       1
+   Total Risks:          18
 
-  - 🚨 Command Injection: User input passed to shell commands
-  - 🚨 Arbitrary Code Execution: NPX downloads and runs untrusted code
-  - 🚨 Privilege Escalation: Servers run with user's full permissions
-  - 🚨 Supply Chain Attacks: Malicious packages in npm/PyPI
+🔍 DOCKER BEHAVIORAL RISKS FOUND:
 
-  Black Box Detection Patterns:
+   Server: brave-search (mcp/brave-search)
+   Execution: ✅ Success
+   Network Connections: 0
+   File Operations: 0
+   Security Risks:
+      1. TOOL POISONING (MEDIUM)
+         Tool "brave_web_search" description contains suspicious formatting that could hide instructions
+         Confidence: NaN%
+         Evidence: Excessive whitespace
+      2. DATA EXFILTRATION (HIGH)
+         Tool "brave_web_search" has parameters that could be used for data exfiltration
+         Confidence: NaN%
+         Evidence: query (overly broad type), text_decorations...
+      3. CROSS ORIGIN VIOLATION (MEDIUM)
+         Tool "brave_web_search" references other MCP servers or external services
+         Confidence: NaN%
+         Evidence: searchapi
+      4. TOOL POISONING (MEDIUM)
+         Tool "brave_local_search" description contains suspicious formatting that could hide instructions
+         Confidence: NaN%
+         Evidence: Excessive whitespace
+      5. DATA EXFILTRATION (HIGH)
+         Tool "brave_local_search" has parameters that could be used for data exfiltration
+         Confidence: NaN%
+         Evidence: query (overly broad type), text_decorations...
+      6. CROSS ORIGIN VIOLATION (MEDIUM)
+         Tool "brave_local_search" references other MCP servers or external services
+         Confidence: NaN%
+         Evidence: searchapi, thisapi
+      7. DATA EXFILTRATION (HIGH)
+         Tool "brave_video_search" has parameters that could be used for data exfiltration
+         Confidence: NaN%
+         Evidence: query (overly broad type), country (overly broad type)...
+      8. SENSITIVE FILE ACCESS (HIGH)
+         Tool "brave_video_search" references sensitive files or credentials
+         Confidence: NaN%
+         Evidence: key
+      9. CROSS ORIGIN VIOLATION (MEDIUM)
+         Tool "brave_video_search" references other MCP servers or external services
+         Confidence: NaN%
+         Evidence: searchapi
+      10. DATA EXFILTRATION (HIGH)
+         Tool "brave_image_search" has parameters that could be used for data exfiltration
+         Confidence: NaN%
+         Evidence: query (overly broad type), country (overly broad type)...
+      11. CROSS ORIGIN VIOLATION (MEDIUM)
+         Tool "brave_image_search" references other MCP servers or external services
+         Confidence: NaN%
+         Evidence: searchapi
+      12. TOOL POISONING (MEDIUM)
+         Tool "brave_news_search" description contains suspicious formatting that could hide instructions
+         Confidence: NaN%
+         Evidence: Excessive whitespace
+      13. DATA EXFILTRATION (HIGH)
+         Tool "brave_news_search" has parameters that could be used for data exfiltration
+         Confidence: NaN%
+         Evidence: query (overly broad type), country (overly broad type)...
+      14. SENSITIVE FILE ACCESS (HIGH)
+         Tool "brave_news_search" references sensitive files or credentials
+         Confidence: NaN%
+         Evidence: cert
+      15. CROSS ORIGIN VIOLATION (MEDIUM)
+         Tool "brave_news_search" references other MCP servers or external services
+         Confidence: NaN%
+         Evidence: searchapi, reuterscom...
+      16. DATA EXFILTRATION (MEDIUM)
+         Tool "brave_summarizer" has parameters that could be used for data exfiltration
+         Confidence: NaN%
+         Evidence: key (overly broad type)
+      17. SENSITIVE FILE ACCESS (HIGH)
+         Tool "brave_summarizer" references sensitive files or credentials
+         Confidence: NaN%
+         Evidence: key
+      18. CROSS ORIGIN VIOLATION (MEDIUM)
+         Tool "brave_summarizer" references other MCP servers or external services
+         Confidence: NaN%
+         Evidence: summarizerapi
 
-  {
-    "command": "npx",
-    "args": ["-y", "@suspicious/mcp-server", "$(rm -rf /)"],  // ⚠️ Injection
-    "env": {"PATH": "/usr/bin:/bin"}
-  }
+🛡️  MCP PROMPT SECURITY ANALYSIS:
+   Server Name:       brave-search
+   Tools Analyzed:    6
+   Prompt Risks:      18
 
-  ---
-  4. Transport Security Issues
+⚠️  MCP PROMPT SECURITY RISKS IDENTIFIED:
+   1. TOOL POISONING (MEDIUM)
+      Tool "brave_web_search" description contains suspicious formatting that could hide instructions
+      Tool: brave_web_search
+      Evidence: Excessive whitespace
+      Confidence: NaN%
+   2. DATA EXFILTRATION (HIGH)
+      Tool "brave_web_search" has parameters that could be used for data exfiltration
+      Tool: brave_web_search
+      Evidence: query (overly broad type), text_decorations, result_filter, extra_snippets, summary
+      Confidence: NaN%
+   3. CROSS ORIGIN VIOLATION (MEDIUM)
+      Tool "brave_web_search" references other MCP servers or external services
+      Tool: brave_web_search
+      Evidence: searchapi
+      Confidence: NaN%
+   4. TOOL POISONING (MEDIUM)
+      Tool "brave_local_search" description contains suspicious formatting that could hide instructions
+      Tool: brave_local_search
+      Evidence: Excessive whitespace
+      Confidence: NaN%
+   5. DATA EXFILTRATION (HIGH)
+      Tool "brave_local_search" has parameters that could be used for data exfiltration
+      Tool: brave_local_search
+      Evidence: query (overly broad type), text_decorations, result_filter, extra_snippets, summary
+      Confidence: NaN%
+   6. CROSS ORIGIN VIOLATION (MEDIUM)
+      Tool "brave_local_search" references other MCP servers or external services
+      Tool: brave_local_search
+      Evidence: searchapi, thisapi
+      Confidence: NaN%
+   7. DATA EXFILTRATION (HIGH)
+      Tool "brave_video_search" has parameters that could be used for data exfiltration
+      Tool: brave_video_search
+      Evidence: query (overly broad type), country (overly broad type), search_lang (overly broad type), ui_lang (overly broad type)
+      Confidence: NaN%
+   8. SENSITIVE FILE ACCESS (HIGH)
+      Tool "brave_video_search" references sensitive files or credentials
+      Tool: brave_video_search
+      Evidence: key
+      Confidence: NaN%
+   9. CROSS ORIGIN VIOLATION (MEDIUM)
+      Tool "brave_video_search" references other MCP servers or external services
+      Tool: brave_video_search
+      Evidence: searchapi
+      Confidence: NaN%
+   10. DATA EXFILTRATION (HIGH)
+      Tool "brave_image_search" has parameters that could be used for data exfiltration
+      Tool: brave_image_search
+      Evidence: query (overly broad type), country (overly broad type), search_lang (overly broad type)
+      Confidence: NaN%
+   11. CROSS ORIGIN VIOLATION (MEDIUM)
+      Tool "brave_image_search" references other MCP servers or external services
+      Tool: brave_image_search
+      Evidence: searchapi
+      Confidence: NaN%
+   12. TOOL POISONING (MEDIUM)
+      Tool "brave_news_search" description contains suspicious formatting that could hide instructions
+      Tool: brave_news_search
+      Evidence: Excessive whitespace
+      Confidence: NaN%
+   13. DATA EXFILTRATION (HIGH)
+      Tool "brave_news_search" has parameters that could be used for data exfiltration
+      Tool: brave_news_search
+      Evidence: query (overly broad type), country (overly broad type), search_lang (overly broad type), ui_lang (overly broad type), extra_snippets
+      Confidence: NaN%
+   14. SENSITIVE FILE ACCESS (HIGH)
+      Tool "brave_news_search" references sensitive files or credentials
+      Tool: brave_news_search
+      Evidence: cert
+      Confidence: NaN%
+   15. CROSS ORIGIN VIOLATION (MEDIUM)
+      Tool "brave_news_search" references other MCP servers or external services
+      Tool: brave_news_search
+      Evidence: searchapi, reuterscom, nytimescom, bbccom
+      Confidence: NaN%
+   16. DATA EXFILTRATION (MEDIUM)
+      Tool "brave_summarizer" has parameters that could be used for data exfiltration
+      Tool: brave_summarizer
+      Evidence: key (overly broad type)
+      Confidence: NaN%
+   17. SENSITIVE FILE ACCESS (HIGH)
+      Tool "brave_summarizer" references sensitive files or credentials
+      Tool: brave_summarizer
+      Evidence: key
+      Confidence: NaN%
+   18. CROSS ORIGIN VIOLATION (MEDIUM)
+      Tool "brave_summarizer" references other MCP servers or external services
+      Tool: brave_summarizer
+      Evidence: summarizerapi
+      Confidence: NaN%
 
-  SSE (Server-Sent Events) - Inherently Dangerous:
+📝 MCP PROMPT ANALYSIS SUMMARY:
+   Analyzed 6 tools, found 18 prompt security risks
 
-  - 🚨 No Authentication: SSE streams often lack proper auth
-  - 🚨 Session Fixation: Predictable session IDs enable hijacking
-  - 🚨 Message Injection: Attackers can inject malicious SSE events
-  - 🚨 Resource Exhaustion: No rate limiting on SSE connections
+🔍 MCP JSON CONFIGURATION ANALYSIS:
+   Security Risks:        0
+   Suspicious Packages:   1
+   Bridge Packages:       0
+   Remote Endpoints:      0
 
-  stdio Transport:
+📦 SUSPICIOUS PACKAGES DETECTED:
+   1. BRAVE_API_KEY
 
-  - 🚨 Process Injection: Malicious arguments to subprocess
-  - 🚨 stderr Leakage: Sensitive data logged to stderr
-  - 🚨 Zombie Processes: Improper cleanup leads to resource leaks
+📝 SUMMARY:
+JSON security analysis completed using MCP JSON configuration analysis. Overall security risk assessed as HIGH. Immediate security review and remediation required before production deployment.
 
-  HTTP Transport:
+🔧 RECOMMENDATIONS:
+   1. Pre-install and verify all MCP packages before deployment
+   2. Use package version pinning to prevent supply chain attacks
 
-  - 🚨 CSRF Attacks: Missing CSRF protection
-  - 🚨 Header Injection: Malicious headers in requests
-  - 🚨 TLS Bypass: HTTP instead of HTTPS
-
-  ---
-  5. Authentication/Authorization Failures
-
-  Common Anti-Patterns:
-
-  - 🚨 No Authentication: Many MCP servers accept anonymous connections
-  - 🚨 Hardcoded Tokens: API keys embedded in configuration
-  - 🚨 Token Transmission: Credentials sent in clear text
-  - 🚨 Session Management: Weak or missing session controls
-
-  Detection Signatures:
-
-  {
-    "authorization_token": "sk-...",  // ⚠️ Exposed API key
-    "mcp_servers": [{
-      "url": "http://unsecure-server.com/mcp",  // ⚠️ HTTP not HTTPS
-      "name": "server",
-      // ⚠️ No authorization_token field = anonymous access
-    }]
-  }
-
-  ---
-  6. MCP-Specific Attack Vectors
-
-  Tool Poisoning:
-
-  - Malicious tool descriptions manipulate LLM behavior
-  - Tools that execute arbitrary commands without validation
-
-  Resource Access Abuse:
-
-  - Path traversal in resource handlers: ../../../etc/passwd
-  - Unauthorized file system access
-  - Database connection string injection
-
-  Prompt Injection:
-
-  - MCP prompts that manipulate model responses
-  - Tool descriptions containing malicious instructions
-
-  ---
-  Black Box Analysis Strategy
-
-  For your scanner, focus on these detection patterns in MCP JSON configurations:
-
-  High-Risk Indicators:
-
-  1. Exposed Credentials: Any hardcoded tokens/keys
-  2. Dangerous Commands: Shell execution, Docker with privileges
-  3. Network Access: HTTP instead of HTTPS, localhost binding
-  4. Missing Authentication: No authorization_token fields
-  5. Suspicious Packages: Unverified npm packages, typosquatting
-
-  MCP-Specific Scannable Patterns:
-
-  const riskPatterns = {
-    // Command injection risks
-    dangerousCommands: ["sh", "bash", "eval", "exec"],
-
-    // Exposed credentials
-    credentialPatterns: ["sk-", "Bearer ", "api_key", "token"],
-
-    // Network security
-    insecureProtocols: ["http://", "ws://"],
-
-    // Container security  
-    dangerousDockerArgs: ["--privileged", "--net=host", "-v /:/"],
-
-    // Package security
-    suspiciousPackages: /^@[a-z0-9-]+\/mcp-[a-z-]+-server$/
-  };
-
-  This research reveals that MCP's flexibility creates massive attack surface - especially for black box scenarios where you can't audit the actual server code. The
-  security model heavily depends on proper implementation by third parties, which is often lacking.
-
-
-
-  The official MCP documentation shows these patterns:
-  - Python/UV: {"command": "uv", "args": ["--directory", "/path", "run", "script.py"]}
-  - NPX Pattern: {"command": "npx", "args": ["-y", "@modelcontextprotocol/server-everything"]}
-  - Docker Pattern (from your docs): {"command": "docker", "args": ["run", "--privileged", "-v", "/:/host", "image"]}
+⚠️  HIGH SECURITY RISKS - REVIEW REQUIRED
