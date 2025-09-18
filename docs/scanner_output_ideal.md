@@ -44,32 +44,15 @@ Enter API key: BSAzlbVXTX867mJYZ6-2RMg1AC0n7ae
 Starting anaysis...
 
 Scanning Docker image: mcp/brave-search
-Scanning Docker image: mcp/brave-search using OSV Scanner Docker image
+
 Pulling Docker image: mcp/brave-search
 🐳 Found 1 Docker MCP servers for behavioral analysis
 🐳 Starting parallel Docker behavioral analysis for 1 servers...
 🔍 Analyzing Docker MCP server: brave-search (mcp/brave-search)
-🚀 Starting Docker MCP server: mcp/brave-search
-🔍 Docker command: docker run --rm -i -e BRAVE_API_KEY=BSAzlbVXTX867mJYZ6-2RMg1AC0n7ae mcp/brave-search
-🤝 Establishing MCP connection to brave-search...
-🔄 Executing 2 JSON analysis tasks in parallel...
-🔍 Discovering server capabilities...
+🚀 Starting Docker MCP server: mcp/brave-search 7 & connecting
 ✅ Discovery complete: 6 tools, 0 resources, 0 prompts
-🤖 Running AI analysis on protocol data for brave-search...
-🔍 Running MCP prompt security analysis for server: brave-search
-🔍 Analyzing MCP server "brave-search" for prompt security vulnerabilities...
-   Tools to analyze: 6
-Saving Docker image to tar: /tmp/mcp_brave-search.tar
-Running OSV scan command: docker run --rm -v /tmp/mcp_brave-search.tar:/tmp/mcp_brave-search.tar ghcr.io/google/osv-scanner:latest scan image --archive --format=json /tmp/mcp_brave-search.tar
-OSV scan completed for mcp/brave-search
 ✅ Docker image "mcp/brave-search" - No vulnerabilities found
-✅ Docker image "mcp/brave-search" - No vulnerabilities found
-✅ Docker analysis completed for: brave-search
-🐳 Parallel Docker analysis complete: 1/1 successful
-✅ Enhanced MCP JSON analysis completed in 32572ms
-🐳 Docker behavioral analysis: 1 servers analyzed
-MCP JSON analysis complete: 0 security risks identified
-🐳 Docker behavioral analysis: 1 Docker servers analyzed with runtime behavior
+✅ Docker analysis completed for: brave-search //this should also be where failure message wold appear instead
 Scan complete in 40033ms - Overall risk: HIGH
 
 =====================================
