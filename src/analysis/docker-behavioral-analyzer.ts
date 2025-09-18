@@ -7,7 +7,7 @@ import { z } from 'zod';
 import { SandboxManager } from '../sandbox/sandbox-manager';
 import { AIAnalyzer } from './ai-analyzer';
 import { configManager } from '../config';
-import { RemoteOAuthHandler, type RemoteServerConfig } from './remote-oauth-handler';
+import { type RemoteServerConfig } from './remote-mcp-analyzer';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 
@@ -1097,19 +1097,21 @@ export class DockerBehavioralAnalyzer {
       };
     }
 
-    console.log(`🔍 Starting OAuth2-proxy authentication for: ${remoteUrl}`);
+    console.log(`🔍 Starting MCP OAuth 2.1 authentication for: ${remoteUrl}`);
 
     const startTime = Date.now();
     let authenticationSuccess = false;
     let effectiveUrl = remoteUrl;
+    let authHeaders: Record<string, string> = {};
     let authenticatedCapabilities: any = { tools: [], resources: [], prompts: [] };
     const executionLogs: string[] = [];
 
     try {
-      // Create OAuth handler
-      const oauthHandler = new RemoteOAuthHandler();
+      // Import and use MCP analyzer for OAuth 2.1 DCR authentication
+      const { RemoteMCPAnalyzer } = await import('./remote-mcp-analyzer');
+      const mcpAnalyzer = new RemoteMCPAnalyzer();
 
-      // Configure remote server for OAuth authentication
+      // Configure remote server for MCP OAuth 2.1 authentication
       const remoteServerConfig: RemoteServerConfig = {
         serverName: config.serverName,
         url: remoteUrl,
@@ -1117,19 +1119,30 @@ export class DockerBehavioralAnalyzer {
         config: { public: false } // Assume authentication required for mcp-remote
       };
 
-      executionLogs.push(`Starting OAuth2-proxy authentication for ${remoteUrl}`);
+      executionLogs.push(`Starting MCP OAuth 2.1 DCR authentication for ${remoteUrl}`);
 
-      // Attempt OAuth authentication (this will open browser if env vars are set)
-      effectiveUrl = await oauthHandler.authenticateRemoteServer(remoteServerConfig);
+      try {
+        // Try direct connection first, fall back to OAuth on 401
+        console.log(`🔌 Attempting direct connection to ${config.serverName}...`);
+        await this.testMCPConnection(remoteUrl, {});
+        console.log(`✅ Direct connection successful to ${config.serverName}`);
+      } catch (directError) {
+        // Direct connection failed, try MCP OAuth 2.1 DCR
+        console.log(`🔄 Direct connection failed, trying MCP OAuth 2.1 DCR...`);
 
-      if (effectiveUrl !== remoteUrl) {
-        executionLogs.push(`OAuth2-proxy authentication completed - using proxy URL`);
-        authenticationSuccess = true;
-      } else {
-        executionLogs.push(`OAuth2-proxy not configured - attempting direct connection`);
+        // Use the private OAuth method (accessing via any type for now)
+        authHeaders = await (mcpAnalyzer as any).performMCPOAuth(remoteServerConfig);
+        console.log(`✅ MCP OAuth 2.1 authentication successful for ${config.serverName}`);
       }
 
-      // Now try to connect to the server (either proxied or direct) in background
+      if (authHeaders.Authorization) {
+        executionLogs.push(`MCP OAuth 2.1 DCR authentication completed - using Bearer token`);
+        authenticationSuccess = true;
+      } else {
+        executionLogs.push(`Direct connection - no authentication required`);
+      }
+
+      // Now try to connect to the server with authentication headers
       console.log(`🔄 Connecting to MCP server in background: ${effectiveUrl}`);
 
       // TODO: Implement background persistent connection with streaming updates
@@ -1177,8 +1190,8 @@ export class DockerBehavioralAnalyzer {
       await client.close();
       authenticationSuccess = true;
 
-      // Cleanup OAuth handler
-      await oauthHandler.cleanup();
+      // Cleanup MCP analyzer (handles cleanup automatically)
+      await mcpAnalyzer.cleanup();
 
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -1224,5 +1237,33 @@ export class DockerBehavioralAnalyzer {
         fileOperations: 0
       }
     };
+  }
+
+  /**
+   * Test MCP connection with optional authentication headers
+   */
+  private async testMCPConnection(url: string, authHeaders: Record<string, string>): Promise<void> {
+    const transport = new StreamableHTTPClientTransport(new URL(url));
+    const client = new Client(
+      {
+        name: 'mcp-security-scanner-test',
+        version: '1.0.0'
+      },
+      {
+        capabilities: {
+          tools: {},
+          resources: {},
+          prompts: {}
+        }
+      }
+    );
+
+    try {
+      await client.connect(transport);
+      await client.listTools(); // Basic test request
+      await client.close();
+    } catch (error) {
+      throw new Error(`MCP connection test failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 }

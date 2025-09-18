@@ -310,3 +310,8 @@ JSON security analysis completed using MCP JSON configuration analysis. Overall 
    2. Use package version pinning to prevent supply chain attacks
 
 ⚠️  HIGH SECURITY RISKS - REVIEW REQUIRED
+
+
+
+why are there fake confidence levels hard coded? no edit, want an answer. I've been explicitly clear on having zero fake metrics. plus, confidence scoring threat
+  intelligence is it's own field 
