@@ -65,99 +65,18 @@ Scan complete in 40033ms - Overall risk: HIGH
    Duration:      40033ms
    Timestamp:     2025-09-18T01:02:46.706Z
 
+//below should be deleted, it's pure noise when something is't applicable. makig this note as the reverse is true when inspecitn --repo mode
 🔬 BEHAVIORAL ANALYSIS:
    ⚠️  Skipped (static-only analysis mode)
+// should not have above
 
-🐳 DOCKER BEHAVIORAL ANALYSIS:
-   Docker Servers:       1
-   Total Risks:          18
-
-🔍 DOCKER BEHAVIORAL RISKS FOUND:
-
-   Server: brave-search (mcp/brave-search)
-   Execution: ✅ Success
-   Network Connections: 0
-   File Operations: 0
-   Security Risks:
-      1. TOOL POISONING (MEDIUM)
-         Tool "brave_web_search" description contains suspicious formatting that could hide instructions
-         Confidence: NaN%
-         Evidence: Excessive whitespace
-      2. DATA EXFILTRATION (HIGH)
-         Tool "brave_web_search" has parameters that could be used for data exfiltration
-         Confidence: NaN%
-         Evidence: query (overly broad type), text_decorations...
-      3. CROSS ORIGIN VIOLATION (MEDIUM)
-         Tool "brave_web_search" references other MCP servers or external services
-         Confidence: NaN%
-         Evidence: searchapi
-      4. TOOL POISONING (MEDIUM)
-         Tool "brave_local_search" description contains suspicious formatting that could hide instructions
-         Confidence: NaN%
-         Evidence: Excessive whitespace
-      5. DATA EXFILTRATION (HIGH)
-         Tool "brave_local_search" has parameters that could be used for data exfiltration
-         Confidence: NaN%
-         Evidence: query (overly broad type), text_decorations...
-      6. CROSS ORIGIN VIOLATION (MEDIUM)
-         Tool "brave_local_search" references other MCP servers or external services
-         Confidence: NaN%
-         Evidence: searchapi, thisapi
-      7. DATA EXFILTRATION (HIGH)
-         Tool "brave_video_search" has parameters that could be used for data exfiltration
-         Confidence: NaN%
-         Evidence: query (overly broad type), country (overly broad type)...
-      8. SENSITIVE FILE ACCESS (HIGH)
-         Tool "brave_video_search" references sensitive files or credentials
-         Confidence: NaN%
-         Evidence: key
-      9. CROSS ORIGIN VIOLATION (MEDIUM)
-         Tool "brave_video_search" references other MCP servers or external services
-         Confidence: NaN%
-         Evidence: searchapi
-      10. DATA EXFILTRATION (HIGH)
-         Tool "brave_image_search" has parameters that could be used for data exfiltration
-         Confidence: NaN%
-         Evidence: query (overly broad type), country (overly broad type)...
-      11. CROSS ORIGIN VIOLATION (MEDIUM)
-         Tool "brave_image_search" references other MCP servers or external services
-         Confidence: NaN%
-         Evidence: searchapi
-      12. TOOL POISONING (MEDIUM)
-         Tool "brave_news_search" description contains suspicious formatting that could hide instructions
-         Confidence: NaN%
-         Evidence: Excessive whitespace
-      13. DATA EXFILTRATION (HIGH)
-         Tool "brave_news_search" has parameters that could be used for data exfiltration
-         Confidence: NaN%
-         Evidence: query (overly broad type), country (overly broad type)...
-      14. SENSITIVE FILE ACCESS (HIGH)
-         Tool "brave_news_search" references sensitive files or credentials
-         Confidence: NaN%
-         Evidence: cert
-      15. CROSS ORIGIN VIOLATION (MEDIUM)
-         Tool "brave_news_search" references other MCP servers or external services
-         Confidence: NaN%
-         Evidence: searchapi, reuterscom...
-      16. DATA EXFILTRATION (MEDIUM)
-         Tool "brave_summarizer" has parameters that could be used for data exfiltration
-         Confidence: NaN%
-         Evidence: key (overly broad type)
-      17. SENSITIVE FILE ACCESS (HIGH)
-         Tool "brave_summarizer" references sensitive files or credentials
-         Confidence: NaN%
-         Evidence: key
-      18. CROSS ORIGIN VIOLATION (MEDIUM)
-         Tool "brave_summarizer" references other MCP servers or external services
-         Confidence: NaN%
-         Evidence: summarizerapi
-
-🛡️  MCP PROMPT SECURITY ANALYSIS:
+🛡️  MCP Primitives:
    Server Name:       brave-search
    Tools Analyzed:    6
    Prompt Risks:      18
 
-⚠️  MCP PROMPT SECURITY RISKS IDENTIFIED:
+//I deleted the docker risks that apeared before this because it was duplicative. all unique info for risks need to go below
+⚠️  MCP RISKS IDENTIFIED:
    1. TOOL POISONING (MEDIUM)
       Tool "brave_web_search" description contains suspicious formatting that could hide instructions
       Tool: brave_web_search
@@ -249,17 +168,14 @@ Scan complete in 40033ms - Overall risk: HIGH
       Evidence: summarizerapi
       Confidence: NaN%
 
-📝 MCP PROMPT ANALYSIS SUMMARY:
-   Analyzed 6 tools, found 18 prompt security risks
-
 🔍 MCP JSON CONFIGURATION ANALYSIS:
-   Security Risks:        0
-   Suspicious Packages:   1
+   Security Risks:        0 //this is confusing whem there re secuirty risks unrelated to json
+   Suspicious Packages:   1 // what [ackage and why?]
    Bridge Packages:       0
-   Remote Endpoints:      0
+   Remote Endpoints:      0 
 
 📦 SUSPICIOUS PACKAGES DETECTED:
-   1. BRAVE_API_KEY
+   1. BRAVE_API_KEY //not a apckage, this is a false positive
 
 📝 SUMMARY:
 JSON security analysis completed using MCP JSON configuration analysis. Overall security risk assessed as HIGH. Immediate security review and remediation required before production deployment.
@@ -269,8 +185,3 @@ JSON security analysis completed using MCP JSON configuration analysis. Overall 
    2. Use package version pinning to prevent supply chain attacks
 
 ⚠️  HIGH SECURITY RISKS - REVIEW REQUIRED
-
-
-
-why are there fake confidence levels hard coded? no edit, want an answer. I've been explicitly clear on having zero fake metrics. plus, confidence scoring threat
-  intelligence is it's own field 

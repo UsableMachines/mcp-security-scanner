@@ -286,7 +286,7 @@ export class ParallelAnalysisOrchestrator {
    * Execute enhanced MCP JSON analysis with parallel Docker behavioral analysis
    */
   async executeMCPJsonAnalysis(mcpJsonConfig: any, options: { apiKey?: string; allowMcpRemote?: boolean } = {}): Promise<MCPJsonAnalysis & { dockerBehavioralAnalysis?: DockerBehavioralAnalysisResult[] }> {
-    console.log('🔍 Running enhanced MCP JSON configuration analysis...');
+    // Removed chatty debug message
     const startTime = Date.now();
 
     try {
@@ -335,7 +335,7 @@ export class ParallelAnalysisOrchestrator {
         }));
       }
 
-      console.log(`🔄 Executing ${tasks.length} JSON analysis tasks in parallel...`);
+      // Removed chatty debug message
       const results = await Promise.allSettled(tasks);
 
       // Process results
@@ -495,7 +495,7 @@ export class ParallelAnalysisOrchestrator {
 
     // Only log relevant server types that were found
     if (dockerConfigs.length > 0) {
-      console.log(`📦 Extracted ${dockerConfigs.length} Docker configs for behavioral analysis`);
+      // Removed chatty debug message
     }
     if (remoteConfigs.length > 0) {
       console.log(`🌐 Detected ${remoteConfigs.length} remote MCP servers`);
@@ -549,7 +549,7 @@ export class ParallelAnalysisOrchestrator {
       console.warn('Failed to extract Docker configurations:', error);
     }
 
-    console.log(`📦 Extracted ${dockerConfigs.length} Docker configs for behavioral analysis`);
+    // Removed chatty debug message
     return dockerConfigs;
   }
 
@@ -691,7 +691,7 @@ export class ParallelAnalysisOrchestrator {
    * Inject CLI-provided API key into Docker configurations using pattern-based detection
    */
   private injectApiKeyIntoConfigs(dockerConfigs: DockerMCPConfig[], apiKey: string): DockerMCPConfig[] {
-    console.log(`🔑 Injecting API key into ${dockerConfigs.length} Docker configurations...`);
+    // Removed chatty debug message
 
     return dockerConfigs.map(config => {
       if (!config.environment) {
@@ -720,7 +720,7 @@ export class ParallelAnalysisOrchestrator {
       });
 
       if (keyInjected) {
-        console.log(`✅ Injected API key into ${injectionCount} environment variables for: ${config.serverName}`);
+        // Removed chatty debug message
         return {
           ...config,
           environment: updatedEnvironment

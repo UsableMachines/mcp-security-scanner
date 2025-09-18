@@ -271,7 +271,7 @@ export class MCPJsonAnalyzer {
     const command = serverConfig.command || '';
     const args = Array.isArray(serverConfig.args) ? serverConfig.args : [];
 
-    console.log(`DEBUG: Command="${command}", Args=${JSON.stringify(args)}`);
+    // Removed chatty debug message
 
     // 1. Package Manager Analysis
     if (command === 'npx') {
@@ -607,12 +607,7 @@ export class MCPJsonAnalyzer {
     const dockerConfig = DockerCommandParser.parseDockerRun(args);
     const dockerImage = dockerConfig.image;
 
-    console.log(`DEBUG: Docker parsing result for ${serverName}:`, {
-      image: dockerImage,
-      isPrivileged: dockerConfig.isPrivileged,
-      volumes: dockerConfig.volumes,
-      networkMode: dockerConfig.networkMode
-    });
+    // Removed chatty debug message
 
     if (!dockerImage) {
       risks.push({

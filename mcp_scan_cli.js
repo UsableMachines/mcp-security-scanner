@@ -251,9 +251,6 @@ Examples:
           console.log(`      Confidence: ${Math.round(risk.confidence * 100)}%`);
         });
       }
-    } else {
-      console.log(`\n🔬 BEHAVIORAL ANALYSIS:`);
-      console.log(`   ⚠️  Skipped (static-only analysis mode)`);
     }
 
     // Docker/Proxy Behavioral Analysis Results (new)
@@ -279,38 +276,17 @@ Examples:
       });
       console.log(`   Total Risks:          ${totalRisks}`);
 
-      if (totalRisks > 0) {
-        console.log(`\n🔍 DOCKER BEHAVIORAL RISKS FOUND:`);
-        result.dockerBehavioralAnalysis.forEach((analysis, i) => {
-          console.log(`\n   Server: ${analysis.serverName} (${analysis.dockerImage})`);
-          console.log(`   Execution: ${analysis.executionSuccess ? '✅ Success' : '❌ Failed'}`);
-          console.log(`   Network Connections: ${analysis.executionMetrics.networkConnections}`);
-          console.log(`   File Operations: ${analysis.executionMetrics.fileOperations}`);
-
-          if (analysis.securityAnalysis.risks.length > 0) {
-            console.log(`   Security Risks:`);
-            analysis.securityAnalysis.risks.forEach((risk, j) => {
-              console.log(`      ${j + 1}. ${risk.type.replace(/_/g, ' ').toUpperCase()} (${risk.severity.toUpperCase()})`);
-              console.log(`         ${risk.description}`);
-              console.log(`         Confidence: ${Math.round(risk.confidence * 100)}%`);
-              if (risk.evidence && risk.evidence.length > 0) {
-                console.log(`         Evidence: ${risk.evidence.slice(0, 2).join(', ')}${risk.evidence.length > 2 ? '...' : ''}`);
-              }
-            });
-          }
-        });
-      }
     }
 
     // MCP Prompt Security Analysis (new)
     if (result.mcpPromptSecurityAnalysis) {
-      console.log(`\n🛡️  MCP PROMPT SECURITY ANALYSIS:`);
+      console.log(`\n🛡️  MCP Primitives:`);
       console.log(`   Server Name:       ${result.mcpPromptSecurityAnalysis.serverName}`);
       console.log(`   Tools Analyzed:    ${result.mcpPromptSecurityAnalysis.totalTools}`);
       console.log(`   Prompt Risks:      ${result.mcpPromptSecurityAnalysis.risks.length}`);
 
       if (result.mcpPromptSecurityAnalysis.risks.length > 0) {
-        console.log(`\n⚠️  MCP PROMPT SECURITY RISKS IDENTIFIED:`);
+        console.log(`\n⚠️  MCP RISKS IDENTIFIED:`);
         result.mcpPromptSecurityAnalysis.risks.forEach((risk, i) => {
           console.log(`   ${i + 1}. ${risk.type.replace(/_/g, ' ').toUpperCase()} (${risk.severity.toUpperCase()})`);
           console.log(`      ${risk.description}`);
@@ -326,9 +302,6 @@ Examples:
 
       console.log(`\n📝 MCP PROMPT ANALYSIS SUMMARY:`);
       console.log(`   ${result.mcpPromptSecurityAnalysis.summary}`);
-    } else {
-      console.log(`\n🛡️  MCP PROMPT SECURITY ANALYSIS:`);
-      console.log(`   ⚠️  Skipped (no MCP server configuration found)`);
     }
 
     if (result.mcpJsonAnalysis) {
@@ -360,9 +333,14 @@ Examples:
         });
       }
 
-      if (result.mcpJsonAnalysis.packageAnalysis.suspiciousPackages.length > 0) {
+      // Skip false positive environment variables shown as "suspicious packages"
+      const actualSuspiciousPackages = result.mcpJsonAnalysis.packageAnalysis.suspiciousPackages.filter(pkg =>
+        !pkg.includes('API_KEY') && !pkg.includes('_KEY') && !pkg.includes('TOKEN')
+      );
+
+      if (actualSuspiciousPackages.length > 0) {
         console.log(`\n📦 SUSPICIOUS PACKAGES DETECTED:`);
-        result.mcpJsonAnalysis.packageAnalysis.suspiciousPackages.forEach((pkg, i) => {
+        actualSuspiciousPackages.forEach((pkg, i) => {
           console.log(`   ${i + 1}. ${pkg}`);
         });
       }
