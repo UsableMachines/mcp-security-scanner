@@ -13,7 +13,47 @@ The scanner uses a pluggable architecture supporting multiple AI providers (Kind
 
 ## Recent Updates
 
-### ✅ Multi-Language Support (Latest)
+### ✅ September 17, 2025 - Major Security & Codebase Improvements (Latest)
+
+#### 🚨 Hardcoded Pattern Elimination
+- **Complete Removal of Hardcoded Values**: Eliminated all hardcoded service names, company names, domains, and confidence values throughout the codebase following CLAUDE.md "NEVER HARD CODE" critical rule
+- **Pattern-Based Detection**: Replaced hardcoded service lists with scalable pattern matching algorithms
+- **Generic Proxy Detection**: Implemented universal proxy/bridge detection (mcp-remote, mcp-proxy patterns) instead of company-specific logic
+- **Dynamic Confidence Calculation**: Removed all hardcoded confidence percentages (0.7, 0.9, 0.85) - confidence now AI-provided or dynamically calculated
+
+#### 🛡️ Enhanced MCP Prompt Security Analysis
+- **New Prompt Security Analyzer**: Added comprehensive MCP prompt security analysis (`src/analysis/mcp-prompt-security-analyzer.ts`)
+- **Tool Poisoning Detection**: Identifies malicious instructions in MCP tool descriptions
+- **Data Exfiltration Pattern Recognition**: Detects unauthorized data collection attempts in tool behaviors
+- **Cross-Origin Reference Detection**: Pattern-based detection of suspicious external service references
+- **Tree View Output**: Professional security report format with structured vulnerability presentation
+- **18 Security Risk Categories**: Comprehensive coverage of MCP-specific attack vectors
+
+#### 🔄 Dynamic Analysis Improvements
+- **API Key Interactive Prompting**: Scanner now detects API key requirements and prompts users interactively for Docker and remote MCP servers
+- **MCP Client Integration**: Added real MCP client connections with tool calling capability in sandbox isolation
+- **Authentication Flow Handling**: Enhanced support for bearer tokens and OAuth flows
+- **Connection Blocking for Proxy Servers**: Immediate analysis halt for mcp-remote proxy packages to prevent auth obfuscation
+
+#### 🐳 Advanced Docker Security Analysis
+- **Tar Archive Vulnerability Scanning**: Improved Docker image CVE detection using `docker save` + `osv-scanner --archive` method
+- **Untagged Image Support**: Eliminates Docker tag requirement issues by creating temporary archives for scanning
+- **Enhanced Container Risk Assessment**: Better detection of privileged containers, dangerous mounts, and host networking
+- **Proxy Package Detection**: Identifies proxy/bridge packages in Docker configurations that may bypass authentication
+
+#### ⚡ Parallel Analysis Architecture
+- **Parallel Orchestration**: Implemented parallel processing for repository scans (`--repo` mode) with enhanced performance
+- **Enhanced JSON Analysis**: Improved MCP JSON configuration analysis with better proxy detection and Docker image identification
+- **Result Data Flow Optimization**: Fixed prompt security analysis result display issues - now correctly shows in dedicated section
+- **URL Handler Detection**: Consistent identification of URL-based remote servers for OAuth web consent planning
+
+#### 🏗️ Technical Infrastructure Improvements
+- **Zod Schema Validation**: Enhanced MCP configuration validation with stricter typing
+- **Generic Edge Case Handling**: Better handling of npx/uv/uvx local servers that should redirect to `--repo` mode
+- **Package.json Search Optimization**: Fixed Python repository compatibility issues with package detection
+- **TypeScript Compilation Fixes**: Resolved all type safety issues and build errors
+
+### ✅ Multi-Language Support
 - **Python MCP Servers**: Full support for `pyproject.toml`, `uv.lock`, and `requirements.txt` projects
 - **Automatic Project Detection**: OSV Scanner automatically detects Python, TypeScript, Rust, Go, and other ecosystems
 - **UV Package Manager**: Native support for Python projects using UV dependency management
@@ -28,6 +68,122 @@ The scanner uses a pluggable architecture supporting multiple AI providers (Kind
 - **Removed Duplicate Sections**: Eliminated redundant "Source Code Suggestions" that duplicated recommendations
 - **Actionable Recommendations**: Focused on security team actionable items rather than read-only suggestions
 - **Cleaner Output**: Streamlined security reports for better readability and professional presentation
+
+## September 17, 2025 - Development Log
+
+### Commits Overview (10 commits)
+
+This section documents the comprehensive refactoring and security improvements completed on September 17, 2025:
+
+#### Commit `c9be4fa` - Pattern-Based Security Analysis
+- **Fixed scan definition and console print issues**
+- **Implemented pattern matching logic vs hard coding**
+- **Key Changes:**
+  - Replaced hardcoded service detection with generic pattern matching
+  - Fixed prompt security analysis display in dedicated output section
+  - Resolved console output formatting issues
+  - Enhanced cross-origin reference detection using scalable algorithms
+
+#### Commit `6071d29` - Remote Server URL Handling
+- **Consistently identifying URL handler in JSON for remote servers**
+- **OAuth Web Consent Planning**: Initiated OAuth2-proxy integration research
+- **Key Changes:**
+  - Enhanced URL pattern detection for remote MCP servers
+  - Added framework for OAuth web consent flow handling
+  - Prepared infrastructure for OAuth2-proxy container integration
+  - Documented authentication flow: User → OAuth2 Proxy → Provider → App
+
+#### Commit `ab788d6` - API Key Detection & MCP Client Integration
+- **API key pattern detection with interactive prompting**
+- **Real MCP client connections in sandbox isolation**
+- **Key Changes:**
+  - Added interactive API key prompting for Docker containers (tested with Brave Search MCP)
+  - Implemented MCP client connection capability without exposing LLM backing
+  - Enhanced authentication handling for Docker vs remote servers
+  - Added URLhaus integration planning for malicious DNS matching
+
+#### Commit `ab788d6` - Proxy Pattern Edge Case Handling
+- **Fixed edge case for proxy and bridge patterns running STDIO servers as remote**
+- **Enhanced Linear server handling with mcp-remote rejection**
+- **Key Changes:**
+  - Added proxy pattern detection in args for transport proxy/URL handling
+  - Implemented analysis halt for mcp-remote packages due to auth obfuscation
+  - Enhanced edge case handling for npx servers that require `--repo` mode
+  - Improved distinction between local and remote server execution patterns
+
+#### Commit `79f97f4` - Parallel Analysis Architecture
+- **Changed to parallel scans for `--repo` mode**
+- **Extended parallel processing to `--json` and Docker detection**
+- **Key Changes:**
+  - Implemented parallel processing for repository analysis
+  - Enhanced performance through concurrent analysis execution
+  - Prepared architecture for parallel JSON configuration analysis
+  - Optimized Docker image scanning with parallel execution
+
+#### Commit `ed941e8` - Prompt Security Analyzer Implementation
+- **Added prompt security analyzer with tree view output**
+- **Created bad_mcp directory and test MCP for vulnerability case identification**
+- **Key Changes:**
+  - Implemented comprehensive MCP prompt security analysis
+  - Added structured tree view output for security reports
+  - Created test infrastructure with vulnerable MCP examples
+  - Enhanced vulnerability detection for MCP-specific attack vectors
+
+#### Commit `b71091f` - Local Server Edge Case Resolution
+- **Covers edge case when JSON inspection detects non-Docker, non-remote commands**
+- **Redirects users to `--repo` mode for local servers**
+- **Key Changes:**
+  - Enhanced detection of uv/uvx/npx local server patterns
+  - Added automatic redirection to `--repo` mode for code analysis
+  - Improved assumption-based routing for local vs remote server detection
+  - Fixed edge cases in command pattern analysis
+
+#### Commit `3bd81d9` - Python Repository Compatibility Fix
+- **Fixed package.json search pattern breaking Python repositories**
+- **Simplified OSV scanner method based on documentation**
+- **Key Changes:**
+  - Removed specific package.json path requirements
+  - Enhanced compatibility with Python project structures
+  - Simplified and more durable scan method for URL-based code scanning
+  - Improved multi-language project detection reliability
+
+#### Commit `9831270` - Docker Image Vulnerability Scanning
+- **Implemented Docker image scanning using OSV-scanner with tar archive method**
+- **Handles untagged images through docker save workaround**
+- **Key Changes:**
+  - Added tar archive approach for Docker image CVE scanning
+  - Solved untagged image scanning issues with `docker save` + `--archive` flag
+  - Enhanced vulnerability detection for container images
+  - Implemented universal method for all Docker images regardless of tagging
+
+#### Commit `5206015` - MCP JSON Schema & Docker Image Detection
+- **Added MCP JSON Zod schema and parsing**
+- **Docker image identification when command: docker is true**
+- **Key Changes:**
+  - Implemented Zod schema validation for MCP configurations
+  - Enhanced Docker image name extraction from complex argument patterns
+  - Added AI assessment integration for container security
+  - Prepared OSV Docker image scanning validation framework
+
+### Key Files Modified
+
+- **`src/analysis/mcp-prompt-security-analyzer.ts`**: New comprehensive prompt security analysis
+- **`src/analysis/docker-behavioral-analyzer.ts`**: Enhanced Docker container analysis with mcp-remote rejection
+- **`src/analysis/parallel-orchestrator.ts`**: Implemented parallel processing and result flow optimization
+- **`src/analysis/mcp-json-analyzer.ts`**: Enhanced JSON configuration analysis with proxy detection
+- **`src/index.ts`**: Main scanner orchestration with improved result aggregation
+- **`mcp_scan_cli.js`**: CLI interface improvements and output formatting fixes
+
+### Technical Achievements
+
+1. **Zero Hardcoded Dependencies**: Complete elimination of hardcoded service names, domains, and confidence values
+2. **Scalable Pattern Detection**: Generic algorithms that work across any service provider
+3. **Production-Ready Security Analysis**: 18 comprehensive MCP security risk categories
+4. **Enhanced Performance**: Parallel processing architecture for faster analysis
+5. **Improved User Experience**: Interactive API key prompting and cleaner output formatting
+6. **Robust Error Handling**: Better edge case management and TypeScript type safety
+
+This represents a major milestone in the MCP Security Scanner's evolution toward production deployment and enterprise-grade security analysis capabilities.
 
 ## Architecture
 
