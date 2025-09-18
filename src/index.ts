@@ -175,6 +175,20 @@ export class MCPSecurityScanner {
     let mcpPromptSecurityAnalysis: any;
     if (scanMode === 'json' && options.mcpJsonConfig) {
       try {
+        // Check for local execution servers first - redirect before API key detection
+        if (this.hasLocalExecutionServers(options.mcpJsonConfig)) {
+          const servers = options.mcpJsonConfig.mcpServers || {};
+          const localServers = Object.entries(servers).filter(([_, config]: [string, any]) => {
+            return config.command && config.command !== 'docker' && !this.isRemoteServer(config);
+          });
+          const serverNames = localServers.map(([name]) => name);
+          const commands = localServers.map(([_, config]: [string, any]) => config.command);
+
+          const message = `\n❌ LOCAL EXECUTION DETECTED\nServers "${serverNames.join('", "')}" use "${commands.join('", "')}" commands.\n\nUse repository analysis instead:\nyarn node mcp_scan_cli.js --repo <github_repository_url>`;
+          console.log(message);
+          throw new Error('LOCAL_EXECUTION_REDIRECT');
+        }
+
         // Check if API key is needed for Docker/remote servers before starting analysis
         if (!options.apiKey) {
           options.apiKey = await this.promptForApiKeyIfNeeded(options.mcpJsonConfig);
@@ -404,6 +418,44 @@ export class MCPSecurityScanner {
   }
 
   /**
+   * Check if server configuration represents a remote MCP server
+   * Simple logic: No command field = remote, OR command with http/https URLs = remote proxy
+   */
+  private isRemoteServer(config: any): boolean {
+    // Most remote servers don't have a command field
+    if (!config.command) {
+      return true;
+    }
+
+    // Edge case: command exists but it's a proxy/bridge pattern with URLs
+    if (config.command !== 'docker' && config.args?.some((arg: string) =>
+      arg.includes('http://') || arg.includes('https://')
+    )) {
+      return true;
+    }
+
+    // Everything else is local
+    return false;
+  }
+
+  /**
+   * Check if MCP config has any local execution servers that should redirect to --repo
+   * Docker servers are NOT local execution - they should still get API key prompting
+   */
+  private hasLocalExecutionServers(mcpJsonConfig: any): boolean {
+    const servers = mcpJsonConfig.mcpServers || {};
+    return Object.values(servers).some((config: any) => {
+      // Only local execution if:
+      // 1. Has a command (not a pure remote server)
+      // 2. Command is NOT docker (docker servers need API key prompting)
+      // 3. Command is NOT a proxy pattern with URLs (like npx with http URLs)
+      return config.command &&
+             config.command !== 'docker' &&
+             !config.args?.some((arg: string) => arg.includes('http://') || arg.includes('https://'));
+    });
+  }
+
+  /**
    * Check if API key is needed for Docker/remote servers and prompt user
    */
   private async promptForApiKeyIfNeeded(mcpJsonConfig: any): Promise<string | undefined> {
@@ -413,6 +465,16 @@ export class MCPSecurityScanner {
 
     for (const [serverName, serverConfig] of Object.entries(servers)) {
       const config = serverConfig as any;
+
+      // Skip local execution servers that should use --repo instead
+      // Docker servers should NOT be skipped - they need API key detection
+      const isLocalExecution = config.command &&
+                               config.command !== 'docker' &&
+                               !this.isRemoteServer(config);
+      if (isLocalExecution) {
+        continue; // Skip API key detection for local servers
+      }
+
       const env = config.env || {};
 
       // Check if this server has environment variables that look like API keys with placeholder values

@@ -169,17 +169,68 @@ export class RemoteOAuthHandler {
   }
 
   /**
-   * Open browser for OAuth authentication
+   * Check URL against URLhaus malicious domain database
+   */
+  private async checkURLhaus(url: string): Promise<boolean> {
+    try {
+      const urlObj = new URL(url);
+      const hostname = urlObj.hostname;
+
+      // Check against URLhaus API for known malicious domains
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+      // Include API key if available for better rate limits
+      const apiKey = process.env.URLAUS_API_KEY;
+      const body = apiKey
+        ? `host=${encodeURIComponent(hostname)}&api_key=${encodeURIComponent(apiKey)}`
+        : `host=${encodeURIComponent(hostname)}`;
+
+      const response = await fetch('https://urlhaus-api.abuse.ch/v1/host/', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body,
+        signal: controller.signal
+      });
+
+      clearTimeout(timeoutId);
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data.query_status === 'ok' && data.urlhaus_reference) {
+          console.log(`🚨 WARNING: Domain ${hostname} found in URLhaus malicious database!`);
+          console.log(`   Reference: ${data.urlhaus_reference}`);
+          return true; // Malicious
+        }
+      }
+      return false; // Clean
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      console.warn(`⚠️  URLhaus check failed for ${url}: ${errorMessage}`);
+      return false; // Assume clean on API failure
+    }
+  }
+
+  /**
+   * Open browser for OAuth authentication with security checks
    */
   private async openBrowserForAuth(authUrl: string): Promise<void> {
     console.log(`📱 Opening browser for OAuth authentication...`);
     console.log(`🔗 Auth URL: ${authUrl}`);
 
+    // Check URL against URLhaus malicious database
+    const isMalicious = await this.checkURLhaus(authUrl);
+    if (isMalicious) {
+      throw new Error(`OAuth URL flagged as malicious by URLhaus database: ${authUrl}`);
+    }
+
     try {
-      const open = require('open');
-      await open(authUrl);
+      const open = await import('open');
+      await open.default(authUrl);
+      console.log(`✅ Browser opened successfully`);
     } catch (error) {
       console.warn('Could not open browser automatically. Please visit the URL above.');
+      console.log(`   Manual action required: Visit ${authUrl} in your browser`);
     }
   }
 
@@ -209,10 +260,19 @@ export class RemoteOAuthHandler {
         // Continue waiting
       }
 
+      // Progress indicator every 30 seconds
+      if (Math.floor((Date.now() - startTime) / 1000) % 30 === 0 && Date.now() - startTime > 30000) {
+        const elapsed = Math.round((Date.now() - startTime) / 1000);
+        const remaining = Math.round((timeout - (Date.now() - startTime)) / 1000);
+        console.log(`   Still waiting... ${elapsed}s elapsed, ${remaining}s remaining`);
+      }
+
       await new Promise(resolve => setTimeout(resolve, 2000));
     }
 
-    throw new Error('OAuth authentication timed out');
+    console.log(`❌ OAuth authentication timed out after ${timeout / 1000} seconds`);
+    console.log(`   Please ensure you completed the authentication flow in your browser`);
+    throw new Error('OAuth authentication timed out - user may not have completed browser authentication');
   }
 
   /**
@@ -223,7 +283,10 @@ export class RemoteOAuthHandler {
 
     if (!provider) {
       console.log(`⚠️  No OAuth configuration found`);
-      console.log(`   Set OAUTH2_PROXY_CLIENT_ID, OAUTH2_PROXY_CLIENT_SECRET, and OAUTH2_PROXY_PROVIDER environment variables`);
+      console.log(`   Required environment variables:`);
+      console.log(`   • OAUTH2_PROXY_CLIENT_ID=your-client-id`);
+      console.log(`   • OAUTH2_PROXY_CLIENT_SECRET=your-client-secret`);
+      console.log(`   • OAUTH2_PROXY_PROVIDER=github|google|microsoft|oidc`);
       console.log(`   Attempting direct connection (may require manual authentication)`);
       return remoteConfig.url;
     }

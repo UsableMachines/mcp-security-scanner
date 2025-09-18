@@ -9,6 +9,7 @@ import { SandboxManager } from '../sandbox/sandbox-manager';
 import { AIAnalyzer, type SecurityAnalysis } from './ai-analyzer';
 import { DependencyAnalyzer, type DependencyAnalysisResult } from './dependency-analyzer';
 import { MCPJsonAnalyzer, type MCPJsonAnalysis } from './mcp-json-analyzer';
+import { getServersFromConfig } from './mcp-config-schema';
 import { DockerBehavioralAnalyzer, type DockerBehavioralAnalysisResult, type DockerMCPConfig } from './docker-behavioral-analyzer';
 import { OSVService } from '../services/osv-service';
 
@@ -430,24 +431,26 @@ export class ParallelAnalysisOrchestrator {
     const remoteConfigs: any[] = [];
 
     try {
-      if (!mcpJsonConfig.mcpServers) {
+      const servers = getServersFromConfig(mcpJsonConfig);
+      if (!servers || Object.keys(servers).length === 0) {
         return { dockerConfigs, remoteConfigs };
       }
 
-      for (const [serverName, serverConfig] of Object.entries(mcpJsonConfig.mcpServers)) {
+      for (const [serverName, serverConfig] of Object.entries(servers)) {
         const config = serverConfig as any;
 
-        // Check if this is a remote URL-based server (all client variations)
-        const isRemote = !!(config.url || config.serverUrl || config.httpUrl ||
-                           config.type === 'http' || config.type === 'streamableHttp');
+        // Use simplified remote detection logic
+        const isRemote = this.isRemoteServer(config);
 
         if (isRemote) {
           console.log(`🌐 Detected remote MCP server: ${serverName}`);
+          const url = config.url || config.serverUrl || config.httpUrl;
+          const detectedType = this.detectTransportType(config.type, url);
           remoteConfigs.push({
             serverName,
             config,
-            url: config.url || config.serverUrl || config.httpUrl,
-            type: config.type || 'http',
+            url,
+            type: detectedType,
             headers: config.headers || {}
           });
         }
@@ -467,8 +470,8 @@ export class ParallelAnalysisOrchestrator {
               });
             }
           }
-          // Handle proxy/bridge servers by wrapping them in Docker
-          else if (config.args && this.isProxyBridgeServer(config.command, config.args)) {
+          // Handle known proxy/bridge packages (like mcp-remote) by wrapping in Docker
+          else if (config.args && config.command && this.isKnownProxyPackage(config.args)) {
             console.log(`🔗 Creating Docker wrapper for proxy server: ${serverName}`);
             const proxyDockerConfig = this.createProxyServerDockerConfig(serverName, config);
             if (proxyDockerConfig) {
@@ -499,11 +502,12 @@ export class ParallelAnalysisOrchestrator {
     const dockerConfigs: DockerMCPConfig[] = [];
 
     try {
-      if (!mcpJsonConfig.mcpServers) {
+      const servers = getServersFromConfig(mcpJsonConfig);
+      if (!servers || Object.keys(servers).length === 0) {
         return dockerConfigs;
       }
 
-      for (const [serverName, serverConfig] of Object.entries(mcpJsonConfig.mcpServers)) {
+      for (const [serverName, serverConfig] of Object.entries(servers)) {
         const config = serverConfig as any;
 
         // Check if this is a native Docker-based MCP server
@@ -521,8 +525,8 @@ export class ParallelAnalysisOrchestrator {
             });
           }
         }
-        // NEW: Handle proxy/bridge servers (npx, uvx, etc.) by wrapping them in Docker
-        else if (config.command && config.args && this.isProxyBridgeServer(config.command, config.args)) {
+        // NEW: Handle known proxy/bridge packages (like mcp-remote) by wrapping them in Docker
+        else if (config.command && config.args && this.isKnownProxyPackage(config.args)) {
           console.log(`🔗 Creating Docker wrapper for proxy server: ${serverName}`);
 
           // Create a Docker config that will run the proxy server in a Node.js container
@@ -541,33 +545,64 @@ export class ParallelAnalysisOrchestrator {
   }
 
   /**
-   * Check if server configuration represents a proxy/bridge server
+   * Detect transport type from config and URL patterns
    */
-  private isProxyBridgeServer(command: string, args: string[]): boolean {
-    // Known proxy/bridge patterns
+  private detectTransportType(explicitType: string | undefined, url: string | undefined): string {
+    // Check explicit type first
+    if (explicitType === 'sse' || explicitType === 'server-sent-events') {
+      return 'sse';
+    }
+    if (explicitType === 'http' || explicitType === 'streamableHttp') {
+      return 'http';
+    }
+
+    // Auto-detect from URL patterns
+    if (url) {
+      const urlLower = url.toLowerCase();
+      if (urlLower.includes('/sse') || urlLower.includes('/events') || urlLower.includes('sse.')) {
+        return 'sse';
+      }
+    }
+
+    // Default to HTTP streaming
+    return 'http';
+  }
+
+  /**
+   * Check if server configuration represents a remote MCP server
+   * Simple logic: either has direct URL fields OR command with URL in args
+   */
+  private isRemoteServer(config: any): boolean {
+    // Scenario 1: Direct URL fields (from remote_client_types.md)
+    const hasDirectUrl = !!(
+      config.url ||
+      config.serverUrl ||
+      config.httpUrl ||
+      config.type === 'http' ||
+      config.type === 'sse' ||
+      config.type === 'streamableHttp'
+    );
+
+    // Scenario 2: Command with URL in args (npx/uvx/uv + http/https URL)
+    const hasUrlInArgs = config.args?.some((arg: string) =>
+      arg.includes('http://') || arg.includes('https://')
+    );
+
+    return hasDirectUrl || hasUrlInArgs;
+  }
+
+  /**
+   * Check if server is a known proxy/bridge package (for mcp-remote detection)
+   */
+  private isKnownProxyPackage(args: string[]): boolean {
     const proxyPackagePatterns = [
       'mcp-remote', 'mcp-proxy', '@sparfenyuk/mcp-proxy', 'fastmcp-proxy',
       'mcp-bridge', 'mcp-connector', 'mcp-gateway', 'mcp-tunnel'
     ];
 
-    const urlPatterns = [
-      /^https?:\/\//, /^wss?:\/\//, /\/sse$/, /\/events$/, /\/api\/mcp/,
-      /\.(app|com|io|dev|net|org)$/, // Generic domain endings instead of hardcoded domains
-      /mcp\./,  // MCP-related subdomains (mcp.linear.app, mcp.company.com, etc.)
-      /api\./   // API subdomains (api.service.com, etc.)
-    ];
-
-    // Check for proxy packages in args
-    const hasProxyPackage = args.some(arg =>
+    return args.some(arg =>
       proxyPackagePatterns.some(pattern => arg.includes(pattern))
     );
-
-    // Check for remote URLs in args
-    const hasRemoteUrl = args.some(arg =>
-      urlPatterns.some(pattern => pattern.test(arg))
-    );
-
-    return (command === 'npx' || command === 'uvx') && (hasProxyPackage || hasRemoteUrl);
   }
 
   /**

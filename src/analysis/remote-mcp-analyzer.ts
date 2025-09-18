@@ -83,22 +83,42 @@ export class RemoteMCPAnalyzer {
 
     const startTime = Date.now();
     let authMethod = 'none';
+    let authHeaders: Record<string, string> = {};
 
     try {
-      // Step 1: Handle OAuth authentication if needed
-      let effectiveUrl = config.url;
+      // Step 1: Always try direct connection first
+      console.log(`🔌 Attempting direct connection to ${config.serverName}...`);
 
-      if (this.requiresAuthentication(config)) {
-        console.log(`🔐 Authentication required for ${config.serverName}`);
-        effectiveUrl = await this.oauthHandler.authenticateRemoteServer(config);
-        authMethod = 'oauth2-proxy';
+      let protocolData;
+      try {
+        protocolData = await this.captureRemoteMCPProtocol(config, config.url, authHeaders);
+        console.log(`✅ Direct connection successful to ${config.serverName}`);
+      } catch (directError) {
+        // ANY connection failure triggers OAuth fallback
+        console.log(`🔄 Direct connection failed for ${config.serverName}, trying OAuth fallback...`);
+        console.log(`   Error: ${directError instanceof Error ? directError.message : String(directError)}`);
+
+        try {
+          // Step 1.5: Perform MCP OAuth 2.1 authentication
+          console.log(`🚀 Starting MCP OAuth 2.1 flow...`);
+          authHeaders = await this.performMCPOAuth(config);
+          authMethod = 'mcp-oauth-2.1';
+
+          // Retry connection with Bearer token
+          console.log(`🔄 Retrying connection with authentication...`);
+          protocolData = await this.captureRemoteMCPProtocol(config, config.url, authHeaders);
+          console.log(`✅ Authenticated connection successful to ${config.serverName}`);
+        } catch (oauthError) {
+          console.error(`❌ OAuth authentication also failed for ${config.serverName}:`, oauthError);
+          console.error(`❌ Original direct connection error:`, directError);
+          // Throw the OAuth error as it's the more recent failure
+          throw oauthError;
+        }
       }
 
-      // Step 2: Connect to remote MCP server and capture protocol data
-      const protocolData = await this.captureRemoteMCPProtocol(config, effectiveUrl);
       const connectionTime = Date.now() - startTime;
 
-      // Step 3: Perform security analysis (reuse existing AI analysis)
+      // Step 2: Perform security analysis (reuse existing AI analysis)
       console.log(`🤖 Running security analysis on remote server data for ${config.serverName}...`);
       const securityAnalysis = await this.performSecurityAnalysis(config.serverName, protocolData);
 
@@ -160,7 +180,7 @@ export class RemoteMCPAnalyzer {
   /**
    * Connect to remote MCP server and capture protocol interactions
    */
-  private async captureRemoteMCPProtocol(config: RemoteServerConfig, effectiveUrl: string): Promise<MCPProtocolData> {
+  private async captureRemoteMCPProtocol(config: RemoteServerConfig, effectiveUrl: string, authHeaders: Record<string, string> = {}): Promise<MCPProtocolData> {
     const { Client } = require('@modelcontextprotocol/sdk/client/index.js');
 
     let client: any = null;
@@ -173,11 +193,15 @@ export class RemoteMCPAnalyzer {
       if (transportType === 'sse') {
         // Server-Sent Events transport
         const { SSEClientTransport } = require('@modelcontextprotocol/sdk/client/sse.js');
-        transport = new SSEClientTransport(new URL(effectiveUrl));
+        transport = new SSEClientTransport(new URL(effectiveUrl), {
+          headers: { ...config.headers, ...authHeaders }
+        });
       } else {
         // HTTP Streaming transport (most common for remote servers)
-        const { HttpClientTransport } = require('@modelcontextprotocol/sdk/client/http.js');
-        transport = new HttpClientTransport(new URL(effectiveUrl));
+        const { StreamableHTTPClientTransport } = require('@modelcontextprotocol/sdk/client/streamableHttp.js');
+        transport = new StreamableHTTPClientTransport(new URL(effectiveUrl), {
+          headers: { ...config.headers, ...authHeaders }
+        });
       }
 
       // Create MCP client
@@ -252,7 +276,7 @@ export class RemoteMCPAnalyzer {
    * Check if remote server requires authentication
    */
   private requiresAuthentication(config: RemoteServerConfig): boolean {
-    // Check for authentication indicators in headers or config
+    // Check for explicit authentication indicators in headers or config
     const hasAuthHeaders = config.headers && (
       Object.keys(config.headers).some(key =>
         key.toLowerCase().includes('authorization') ||
@@ -261,11 +285,12 @@ export class RemoteMCPAnalyzer {
       )
     );
 
-    // Most remote MCP servers require authentication
-    // Only skip auth for explicitly public servers
-    const isPublicServer = config.config.public === true;
+    // Check if authentication is explicitly required
+    const authExplicitlyRequired = config.config.requiresAuth === true;
 
-    return !isPublicServer || !!hasAuthHeaders;
+    // Only require authentication if explicitly indicated
+    // Default behavior: attempt direct connection first, fall back to auth on 401
+    return !!hasAuthHeaders || authExplicitlyRequired;
   }
 
   /**
@@ -279,6 +304,14 @@ export class RemoteMCPAnalyzer {
 
     if (config.type === 'http' || config.type === 'streamableHttp') {
       return 'http';
+    }
+
+    // Check URL pattern for SSE indicators
+    if (config.url) {
+      const url = config.url.toLowerCase();
+      if (url.includes('/sse') || url.includes('/events') || url.includes('sse.')) {
+        return 'sse';
+      }
     }
 
     // Check headers for SSE indicators
@@ -355,6 +388,33 @@ export class RemoteMCPAnalyzer {
         recommendations: ['Manual security review required due to analysis failure']
       };
     }
+  }
+
+  /**
+   * Perform MCP OAuth 2.1 authentication flow
+   *
+   * TODO: Implement full RFC 7591 Dynamic Client Registration + MCP resource parameter
+   * For now, this is a placeholder that will be implemented in phases
+   */
+  private async performMCPOAuth(config: RemoteServerConfig): Promise<Record<string, string>> {
+    console.log(`🔍 Starting MCP OAuth 2.1 flow for ${config.serverName}...`);
+
+    // TODO: Phase 1 - Implement basic OAuth discovery and registration
+    // TODO: Phase 2 - Add dynamic client registration (RFC 7591)
+    // TODO: Phase 3 - Add MCP resource parameter support
+    // TODO: Phase 4 - Add PKCE for enhanced security
+
+    // For now, throw a clear error indicating this needs implementation
+    throw new Error(
+      `MCP OAuth 2.1 flow not yet implemented for ${config.serverName}. ` +
+      `This requires:\n` +
+      `1. OAuth metadata discovery (.well-known/oauth-authorization-server)\n` +
+      `2. Dynamic client registration (RFC 7591)\n` +
+      `3. Browser-based user consent with callback server\n` +
+      `4. PKCE code challenge/verifier\n` +
+      `5. MCP resource parameter in auth request\n` +
+      `Server will be skipped until OAuth 2.1 implementation is complete.`
+    );
   }
 
   /**

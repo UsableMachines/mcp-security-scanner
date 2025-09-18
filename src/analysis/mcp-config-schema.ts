@@ -33,13 +33,25 @@ export const MCPServerConfigSchema = z.object({
 
 // Schema for the complete MCP configuration file
 export const MCPConfigurationSchema = z.object({
-  mcpServers: z.record(z.string(), MCPServerConfigSchema),
+  // Support both standard MCP format ('servers') and Claude Desktop format ('mcpServers')
+  servers: z.record(z.string(), MCPServerConfigSchema).optional(),
+  mcpServers: z.record(z.string(), MCPServerConfigSchema).optional(),
   // Allow additional properties for extensibility
-}).passthrough();
+}).passthrough().refine(
+  (data: any) => data.servers || data.mcpServers,
+  { message: "Configuration must have either 'servers' or 'mcpServers' field" }
+);
 
 // Type exports
 export type MCPServerConfig = z.infer<typeof MCPServerConfigSchema>;
 export type MCPConfiguration = z.infer<typeof MCPConfigurationSchema>;
+
+/**
+ * Get servers from MCP configuration, supporting both 'servers' and 'mcpServers' formats
+ */
+export function getServersFromConfig(config: MCPConfiguration): Record<string, MCPServerConfig> {
+  return config.servers || config.mcpServers || {};
+}
 
 /**
  * Docker Command Parser
@@ -211,7 +223,7 @@ export function parseAndValidateMCPConfig(input: any): MCPConfiguration {
     return MCPConfigurationSchema.parse(input);
   } catch (error) {
     if (error instanceof z.ZodError) {
-      const issues = error.issues.map(issue =>
+      const issues = error.issues.map((issue: any) =>
         `${issue.path.join('.')}: ${issue.message}`
       );
       throw new Error(`Invalid MCP configuration:\n${issues.join('\n')}`);

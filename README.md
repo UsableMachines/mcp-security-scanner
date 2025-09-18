@@ -30,9 +30,10 @@ The scanner uses a pluggable architecture supporting multiple AI providers (Kind
 - **18 Security Risk Categories**: Comprehensive coverage of MCP-specific attack vectors
 
 #### 🔄 Dynamic Analysis Improvements
-- **API Key Interactive Prompting**: Scanner now detects API key requirements and prompts users interactively for Docker and remote MCP servers
+- **Smart API Key Detection**: Intelligent detection distinguishes between local execution servers (redirect to `--repo`) vs Docker/remote servers (prompt for API key)
+- **Local vs Remote Server Classification**: Pattern-based logic correctly identifies npx/uv local servers, Docker containers, and remote proxy servers
 - **MCP Client Integration**: Added real MCP client connections with tool calling capability in sandbox isolation
-- **Authentication Flow Handling**: Enhanced support for bearer tokens and OAuth flows
+- **OAuth 2.1 DCR Architecture Planning**: Transitioning from oauth2-proxy containers to RFC 7591 Dynamic Client Registration for MCP-compliant authentication
 - **Connection Blocking for Proxy Servers**: Immediate analysis halt for mcp-remote proxy packages to prevent auth obfuscation
 
 #### 🐳 Advanced Docker Security Analysis
@@ -49,7 +50,8 @@ The scanner uses a pluggable architecture supporting multiple AI providers (Kind
 
 #### 🏗️ Technical Infrastructure Improvements
 - **Zod Schema Validation**: Enhanced MCP configuration validation with stricter typing
-- **Generic Edge Case Handling**: Better handling of npx/uv/uvx local servers that should redirect to `--repo` mode
+- **Smart Server Detection Logic**: Robust classification system distinguishing local execution, Docker containers, and remote proxy servers
+- **API Key Detection Flow**: Early detection prevents unnecessary prompting for local servers while ensuring Docker servers get proper authentication
 - **Package.json Search Optimization**: Fixed Python repository compatibility issues with package detection
 - **TypeScript Compilation Fixes**: Resolved all type safety issues and build errors
 
@@ -501,13 +503,42 @@ When adding new analysis capabilities, focus on these MCP-specific attack vector
 - **Automatic Tag Handling**: ✅ Handles untagged images by creating tar archives, eliminating tag requirement issues
 - **Real Vulnerability Analysis**: ✅ Replaced misleading "unpinned image" warnings with actual CVE detection
 
+#### 🚀 OAuth 2.1 Dynamic Client Registration (DCR) - **IN DEVELOPMENT**
+**MCP-Compliant Authentication Architecture** - Implementing RFC 7591 Dynamic Client Registration for seamless OAuth integration:
+
+**Key Features:**
+- **RFC 7591 DCR**: Automatic client registration eliminates manual OAuth app setup
+- **MCP OAuth 2.1 Compliance**: Follows latest MCP authorization specification with `resource` parameter
+- **PKCE Security**: Proof Key for Code Exchange for enhanced security
+- **401 Fallback Pattern**: Try direct connection first, OAuth on 401 response
+- **Browser Integration**: Automated consent flow with secure callback handling
+
+**Implementation Strategy:**
+```mermaid
+graph TD
+    A[MCP Request] --> B{401 Unauthorized?}
+    B -->|No| I[Success]
+    B -->|Yes| C[Discover .well-known/oauth-authorization-server]
+    C --> D[POST /register - Dynamic Client Registration]
+    D --> E[Open Browser with resource parameter]
+    E --> F[User Consent & Auth Code]
+    F --> G[Exchange code for Bearer token with PKCE]
+    G --> H[Retry MCP request with Authorization: Bearer header]
+```
+
+**Technical Benefits:**
+- **No Manual Configuration**: Eliminates oauth2-proxy container setup requirements
+- **Industry Standards**: Full RFC 8414/7591/OAuth 2.1 compliance
+- **MCP-Specific**: Proper `resource` parameter and Bearer token handling
+- **Production Ready**: Secure token storage and PKCE implementation
+
 #### Future: Remote Configuration Analysis (`url`-based)
 🔄 **Planned for Future Release** - Analysis for MCP configurations with `url` and `headers` fields:
 - **Transport Security**: HTTP vs HTTPS endpoint analysis
 - **Header Security**: Authentication token exposure patterns
 - **CORS Configuration**: Cross-origin security policy analysis
 - **Endpoint Validation**: URL pattern security assessment
-- **API Authentication**: Token-based auth security review
+- **OAuth 2.1 Integration**: Automated DCR-based authentication flow
 
 #### Configuration Examples
 
@@ -809,6 +840,94 @@ temperature: 0.1  // ⚠️ May miss complex vulnerabilities
 ```
 
 This implementation achieves the reliability required for enterprise security workflows while maintaining the analytical sophistication needed to detect novel MCP-specific vulnerabilities.
+
+## Server Detection Methodology
+
+### Smart Classification System
+
+The scanner employs a sophisticated three-tier classification system to properly route MCP server configurations for analysis:
+
+#### 1. Local Execution Servers → `--repo` Redirect
+**Pattern Detection:**
+```typescript
+// Detects: npx, uv, uvx commands without HTTP URLs
+hasLocalExecutionServers(config) {
+  return config.command &&
+         config.command !== 'docker' &&
+         !config.args?.some(arg => arg.includes('http://') || arg.includes('https://'));
+}
+```
+
+**Examples:**
+- `npx -y @brave/brave-search-mcp-server` → Redirects to repository analysis
+- `uv run --directory /path script.py` → Redirects to repository analysis
+- `@21st-dev/magic@latest` → Redirects to repository analysis
+
+**Behavior:** Immediately redirects to `--repo` mode before any API key detection, preventing unnecessary prompting for local development servers.
+
+#### 2. Docker Servers → API Key Prompting + Docker Analysis
+**Pattern Detection:**
+```typescript
+// Detects: command === 'docker'
+isDockerServer(config) {
+  return config.command === 'docker';
+}
+```
+
+**Examples:**
+- `docker run -i --rm -e BRAVE_API_KEY mcp/brave-search` → Prompts for API key, runs Docker analysis
+- `docker run --privileged -v /:/host malicious:latest` → Detects security risks, scans image
+
+**Behavior:** Checks for placeholder API keys (`YOUR_API_KEY_HERE`), prompts user if found, then proceeds with Docker behavioral analysis and CVE scanning.
+
+#### 3. Remote Proxy Servers → Remote Analysis
+**Pattern Detection:**
+```typescript
+// Detects: No command field OR command with HTTP URLs
+isRemoteServer(config) {
+  return !config.command ||
+         config.args?.some(arg => arg.includes('http://') || arg.includes('https://'));
+}
+```
+
+**Examples:**
+- `{ "url": "https://mcp.context7.com/mcp" }` → Remote analysis
+- `npx mcp-proxy https://api.service.com` → Remote proxy analysis
+
+**Behavior:** Treats as remote servers requiring authentication handling and network-based security analysis.
+
+### API Key Detection Logic
+
+**Early Detection Pipeline:**
+1. **Local Execution Check**: Skip API key detection entirely for local servers
+2. **Docker Server Processing**: Check environment variables for placeholder patterns
+3. **Interactive Prompting**: Prompt user only when legitimate remote/Docker servers need authentication
+
+**Placeholder Detection Patterns:**
+```typescript
+const hasApiKeyPlaceholder = Object.entries(env).some(([key, value]) => {
+  const keyUpper = key.toUpperCase();
+  const valueStr = String(value);
+  return (keyUpper.includes('API') && keyUpper.includes('KEY')) &&
+         (valueStr.includes('YOUR_') || valueStr.includes('PLACEHOLDER') || valueStr.includes('HERE'));
+});
+```
+
+### Flow Decision Matrix
+
+| Server Type | Command | Args Pattern | API Key Check | Analysis Mode |
+|-------------|---------|--------------|---------------|---------------|
+| **Local NPX** | `npx` | No HTTP URLs | ❌ Skip | `--repo` redirect |
+| **Local UV** | `uv` | Local paths | ❌ Skip | `--repo` redirect |
+| **Docker** | `docker` | Any | ✅ Check placeholders | Docker + behavioral |
+| **Remote URL** | None | N/A | ✅ Check headers | Remote analysis |
+| **Remote Proxy** | `npx` | HTTP URLs | ✅ Check patterns | Remote proxy |
+
+**Key Benefits:**
+- **No False Prompts**: Local servers never trigger unnecessary API key requests
+- **Proper Docker Handling**: Docker servers get appropriate authentication flow
+- **Remote Classification**: Correctly identifies proxy patterns and pure remote servers
+- **Production Ready**: Reliable classification for automated workflows
 
 ## Technical Implementation
 

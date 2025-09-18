@@ -10,6 +10,7 @@ import { AIRouter } from '../services/ai-router';
 import { SandboxManager } from '../sandbox/sandbox-manager';
 import {
   parseAndValidateMCPConfig,
+  getServersFromConfig,
   DockerCommandParser,
   type MCPConfiguration,
   type MCPServerConfig
@@ -125,7 +126,7 @@ export class MCPJsonAnalyzer {
     const proxyServers: [string, MCPServerConfig][] = [];
     const localExecutionServers: [string, MCPServerConfig][] = [];
 
-    for (const [serverName, serverConfig] of Object.entries(mcpConfig.mcpServers)) {
+    for (const [serverName, serverConfig] of Object.entries(getServersFromConfig(mcpConfig))) {
       // Skip Docker and URL-based configs (already handled correctly)
       if (!serverConfig.command || serverConfig.command === 'docker' || !serverConfig.args) {
         continue;
@@ -375,7 +376,7 @@ export class MCPJsonAnalyzer {
     };
 
     // Analyze each MCP server configuration
-    for (const [serverName, serverConfig] of Object.entries(mcpConfig.mcpServers)) {
+    for (const [serverName, serverConfig] of Object.entries(getServersFromConfig(mcpConfig))) {
       console.log(`Analyzing server: ${serverName}`);
       const serverRisks = await this.analyzeServerConfiguration(serverName, serverConfig);
       risks.push(...serverRisks.risks);

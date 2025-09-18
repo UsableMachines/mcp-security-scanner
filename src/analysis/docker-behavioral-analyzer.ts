@@ -7,6 +7,9 @@ import { z } from 'zod';
 import { SandboxManager } from '../sandbox/sandbox-manager';
 import { AIAnalyzer } from './ai-analyzer';
 import { configManager } from '../config';
+import { RemoteOAuthHandler, type RemoteServerConfig } from './remote-oauth-handler';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 
 // Schema for Docker MCP server configuration
 const DockerMCPConfigSchema = z.object({
@@ -170,19 +173,27 @@ export class DockerBehavioralAnalyzer {
     const dockerArgs = this.buildDockerMCPArgs(config);
     console.log(`🔍 Docker command: docker ${dockerArgs.join(' ')}`);
 
-    // Check for mcp-remote and stop immediately
+    // Note: mcp-remote proxy detected - currently unsupported
     if (config.environment?.MCP_PROXY_PACKAGE === 'mcp-remote') {
-      console.log(`\n🚨 ANALYSIS HALTED: mcp-remote detected`);
-      console.log(`   Connection attempts with mcp-remote proxy are blocked for security`);
-      console.log(`   Reason: mcp-remote completely obfuscates authentication and poses critical security risks`);
-      console.log(`   Recommendation: Use direct API integration instead of mcp-remote bridge`);
+      console.log(`\n⚠️  mcp-remote proxy detected - CURRENTLY UNSUPPORTED`);
+      console.log(`   Package: mcp-remote (OAuth authentication bridge)`);
+      console.log(`   Reason: Extremely long and unpredictable authorization times (90+ seconds)`);
+      console.log(`   Status: Supporting mcp-remote requires more development time`);
+      console.log(`   Recommendation: Use direct MCP server connections when possible`);
 
+      // Return minimal protocol data indicating unsupported
       return {
-        serverInfo: { name: config.serverName },
+        serverInfo: { name: config.serverName, version: 'mcp-remote-unsupported' },
         tools: [],
         resources: [],
         prompts: [],
-        executionLogs: ['Analysis blocked: mcp-remote proxy detected. Use direct API integration instead.']
+        executionLogs: [
+          'mcp-remote detected but currently unsupported',
+          'Reason: Extremely long and unpredictable authorization times',
+          'Supporting mcp-remote requires additional development time'
+        ],
+        networkActivity: [],
+        fileSystemActivity: []
       };
     }
 
@@ -454,10 +465,11 @@ export class DockerBehavioralAnalyzer {
    * Handle authentication for MCP server based on detected method and context
    */
   private async handleAuthentication(config: DockerMCPConfig, authInfo: ReturnType<typeof this.detectAuthRequirement>): Promise<void> {
-    // Special case: mcp-remote proxy is fundamentally broken
+    // Special case: mcp-remote proxy requires monitoring
     if (authInfo.authContext.isObfuscated && config.environment?.MCP_PROXY_PACKAGE === 'mcp-remote') {
-      await this.handleMcpRemoteRejection(config, authInfo.authContext.serviceName);
-      return;
+      console.log(`\n🔍 mcp-remote OAuth bridge detected`);
+      console.log(`   Will analyze authentication behavior in sandbox environment`);
+      console.log(`   Note: OAuth flow will be handled by mcp-remote package`);
     }
 
     // Handle auth obfuscation warning
@@ -1034,6 +1046,183 @@ export class DockerBehavioralAnalyzer {
       responseTime: executionTime, // For now, same as startup time
       networkConnections: protocolData.networkActivity?.length || 0,
       fileOperations: protocolData.fileSystemActivity?.length || 0
+    };
+  }
+
+  /**
+   * Analyze mcp-remote with background OAuth monitoring
+   *
+   * NOTE: This method is currently DISABLED as mcp-remote is unsupported
+   * due to extremely long and unpredictable authorization times (90+ seconds).
+   * Supporting mcp-remote requires more development time.
+   */
+  private async analyzeMcpRemoteWithMonitoring(config: DockerMCPConfig): Promise<DockerBehavioralAnalysisResult> {
+    // Extract the URL from MCP_ARGS environment variable
+    const mcpArgs = config.environment?.MCP_ARGS;
+    let remoteUrl = '';
+
+    if (typeof mcpArgs === 'string') {
+      try {
+        const args = JSON.parse(mcpArgs);
+        remoteUrl = args.find((arg: string) => arg.startsWith('http')) || '';
+      } catch {
+        remoteUrl = mcpArgs.split(' ').find((arg: string) => arg.startsWith('http')) || '';
+      }
+    }
+
+    if (!remoteUrl) {
+      console.log(`⚠️  Could not extract remote URL from mcp-remote configuration`);
+      return {
+        serverName: config.serverName,
+        dockerImage: config.dockerImage,
+        executionSuccess: false,
+        protocolData: {
+          tools: [],
+          resources: [],
+          prompts: [],
+          serverInfo: { name: config.serverName, version: 'mcp-remote-failed' },
+          executionLogs: ['Failed to extract remote URL from mcp-remote configuration']
+        },
+        securityAnalysis: {
+          risks: [],
+          summary: 'Failed to analyze mcp-remote: Could not extract remote URL',
+          recommendations: ['Verify mcp-remote configuration includes valid HTTP URL']
+        },
+        executionMetrics: {
+          startupTime: 0,
+          responseTime: 0,
+          networkConnections: 0,
+          fileOperations: 0
+        }
+      };
+    }
+
+    console.log(`🔍 Starting OAuth2-proxy authentication for: ${remoteUrl}`);
+
+    const startTime = Date.now();
+    let authenticationSuccess = false;
+    let effectiveUrl = remoteUrl;
+    let authenticatedCapabilities: any = { tools: [], resources: [], prompts: [] };
+    const executionLogs: string[] = [];
+
+    try {
+      // Create OAuth handler
+      const oauthHandler = new RemoteOAuthHandler();
+
+      // Configure remote server for OAuth authentication
+      const remoteServerConfig: RemoteServerConfig = {
+        serverName: config.serverName,
+        url: remoteUrl,
+        headers: {},
+        config: { public: false } // Assume authentication required for mcp-remote
+      };
+
+      executionLogs.push(`Starting OAuth2-proxy authentication for ${remoteUrl}`);
+
+      // Attempt OAuth authentication (this will open browser if env vars are set)
+      effectiveUrl = await oauthHandler.authenticateRemoteServer(remoteServerConfig);
+
+      if (effectiveUrl !== remoteUrl) {
+        executionLogs.push(`OAuth2-proxy authentication completed - using proxy URL`);
+        authenticationSuccess = true;
+      } else {
+        executionLogs.push(`OAuth2-proxy not configured - attempting direct connection`);
+      }
+
+      // Now try to connect to the server (either proxied or direct) in background
+      console.log(`🔄 Connecting to MCP server in background: ${effectiveUrl}`);
+
+      // TODO: Implement background persistent connection with streaming updates
+      // For now, just attempt a basic connection to test authentication
+
+      const transport = new StreamableHTTPClientTransport(new URL(effectiveUrl));
+      const client = new Client(
+        {
+          name: 'mcp-security-scanner',
+          version: '1.0.0'
+        },
+        {
+          capabilities: {
+            tools: {},
+            resources: {},
+            prompts: {}
+          }
+        }
+      );
+
+      // Connect with extended timeout for OAuth scenarios
+      await client.connect(transport);
+      executionLogs.push(`MCP connection established successfully`);
+
+      // Discovery operations
+      const [toolsResult, resourcesResult, promptsResult] = await Promise.allSettled([
+        client.listTools(),
+        client.listResources(),
+        client.listPrompts()
+      ]);
+
+      authenticatedCapabilities = {
+        tools: toolsResult.status === 'fulfilled' ? toolsResult.value.tools || [] : [],
+        resources: resourcesResult.status === 'fulfilled' ? resourcesResult.value.resources || [] : [],
+        prompts: promptsResult.status === 'fulfilled' ? promptsResult.value.prompts || [] : []
+      };
+
+      const toolsCount = authenticatedCapabilities.tools.length;
+      const resourcesCount = authenticatedCapabilities.resources.length;
+      const promptsCount = authenticatedCapabilities.prompts.length;
+
+      executionLogs.push(`Discovered ${toolsCount} tools, ${resourcesCount} resources, ${promptsCount} prompts`);
+      console.log(`✅ mcp-remote analysis complete: ${toolsCount} tools, ${resourcesCount} resources, ${promptsCount} prompts`);
+
+      await client.close();
+      authenticationSuccess = true;
+
+      // Cleanup OAuth handler
+      await oauthHandler.cleanup();
+
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      executionLogs.push(`Authentication/connection failed: ${errorMessage}`);
+      console.log(`❌ mcp-remote authentication failed: ${errorMessage}`);
+    }
+
+    const duration = Date.now() - startTime;
+    const minutes = Math.floor(duration / 60000);
+    const seconds = Math.floor((duration % 60000) / 1000);
+
+    if (authenticationSuccess) {
+      console.log(`✅ mcp-remote analysis completed in ${minutes}m ${seconds}s`);
+    } else {
+      console.log(`❌ mcp-remote analysis failed after ${minutes}m ${seconds}s`);
+    }
+
+    return {
+      serverName: config.serverName,
+      dockerImage: config.dockerImage,
+      executionSuccess: authenticationSuccess,
+      protocolData: {
+        tools: authenticatedCapabilities.tools || [],
+        resources: authenticatedCapabilities.resources || [],
+        prompts: authenticatedCapabilities.prompts || [],
+        serverInfo: {
+          name: config.serverName,
+          version: `mcp-remote-proxy`
+        },
+        executionLogs
+      },
+      securityAnalysis: {
+        risks: [],
+        summary: `mcp-remote OAuth analysis: ${authenticationSuccess ? 'completed successfully' : 'failed'} in ${minutes}m ${seconds}s`,
+        recommendations: authenticationSuccess
+          ? ['OAuth flow completed - review discovered capabilities for security implications']
+          : ['OAuth flow failed - verify OAuth2-proxy configuration or remote server availability']
+      },
+      executionMetrics: {
+        startupTime: duration,
+        responseTime: duration,
+        networkConnections: 1,
+        fileOperations: 0
+      }
     };
   }
 }
