@@ -285,7 +285,7 @@ export class ParallelAnalysisOrchestrator {
   /**
    * Execute enhanced MCP JSON analysis with parallel Docker behavioral analysis
    */
-  async executeMCPJsonAnalysis(mcpJsonConfig: any, options: { apiKey?: string } = {}): Promise<MCPJsonAnalysis & { dockerBehavioralAnalysis?: DockerBehavioralAnalysisResult[] }> {
+  async executeMCPJsonAnalysis(mcpJsonConfig: any, options: { apiKey?: string; allowMcpRemote?: boolean } = {}): Promise<MCPJsonAnalysis & { dockerBehavioralAnalysis?: DockerBehavioralAnalysisResult[] }> {
     console.log('🔍 Running enhanced MCP JSON configuration analysis...');
     const startTime = Date.now();
 
@@ -321,7 +321,7 @@ export class ParallelAnalysisOrchestrator {
             console.log(`🔗 Created ${proxyServerCount} Docker sandboxes for proxy server behavioral analysis`);
           }
 
-          return await this.dockerBehavioralAnalyzer.analyzeDockerMCPServersInParallel(dockerConfigs);
+          return await this.dockerBehavioralAnalyzer.analyzeDockerMCPServersInParallel(dockerConfigs, { allowMcpRemote: options.allowMcpRemote });
         }));
       }
 

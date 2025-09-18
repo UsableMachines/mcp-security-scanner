@@ -22,6 +22,7 @@ export interface ScanOptions {
   skipDependencyAnalysis?: boolean;
   skipBehavioralAnalysis?: boolean;
   apiKey?: string; // API key for authenticated MCP servers
+  allowMcpRemote?: boolean; // Allow scanning mcp-remote proxy servers (security risk)
 }
 
 export interface ComprehensiveScanResult {

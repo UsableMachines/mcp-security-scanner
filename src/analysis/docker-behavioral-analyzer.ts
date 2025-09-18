@@ -98,12 +98,13 @@ export class DockerBehavioralAnalyzer {
    * Analyze multiple Docker MCP servers in parallel
    */
   async analyzeDockerMCPServersInParallel(
-    dockerConfigs: DockerMCPConfig[]
+    dockerConfigs: DockerMCPConfig[],
+    options: { allowMcpRemote?: boolean } = {}
   ): Promise<DockerBehavioralAnalysisResult[]> {
     console.log(`🐳 Starting parallel Docker behavioral analysis for ${dockerConfigs.length} servers...`);
 
     const analysisPromises = dockerConfigs.map(config =>
-      this.analyzeDockerMCPServer(config)
+      this.analyzeDockerMCPServer(config, options)
     );
 
     const results = await Promise.allSettled(analysisPromises);
@@ -133,13 +134,13 @@ export class DockerBehavioralAnalyzer {
   /**
    * Analyze a single Docker MCP server
    */
-  async analyzeDockerMCPServer(config: DockerMCPConfig): Promise<DockerBehavioralAnalysisResult> {
+  async analyzeDockerMCPServer(config: DockerMCPConfig, options: { allowMcpRemote?: boolean } = {}): Promise<DockerBehavioralAnalysisResult> {
     console.log(`🔍 Analyzing Docker MCP server: ${config.serverName} (${config.dockerImage})`);
 
     const startTime = Date.now();
 
     // Step 1: Execute Docker MCP server in sandbox and capture protocol data
-    const protocolData = await this.captureDockerMCPProtocol(config);
+    const protocolData = await this.captureDockerMCPProtocol(config, options);
 
     const executionTime = Date.now() - startTime;
 
@@ -163,7 +164,7 @@ export class DockerBehavioralAnalyzer {
   /**
    * Execute Docker MCP server and capture protocol interactions using proper MCP client
    */
-  private async captureDockerMCPProtocol(config: DockerMCPConfig): Promise<MCPProtocolData> {
+  private async captureDockerMCPProtocol(config: DockerMCPConfig, options: { allowMcpRemote?: boolean } = {}): Promise<MCPProtocolData> {
     const { Client } = require('@modelcontextprotocol/sdk/client/index.js');
     const { StdioClientTransport } = require('@modelcontextprotocol/sdk/client/stdio.js');
 
@@ -173,28 +174,35 @@ export class DockerBehavioralAnalyzer {
     const dockerArgs = this.buildDockerMCPArgs(config);
     console.log(`🔍 Docker command: docker ${dockerArgs.join(' ')}`);
 
-    // Note: mcp-remote proxy detected - currently unsupported
+    // Note: mcp-remote proxy detection with optional bypass
     if (config.environment?.MCP_PROXY_PACKAGE === 'mcp-remote') {
-      console.log(`\n⚠️  mcp-remote proxy detected - CURRENTLY UNSUPPORTED`);
+      console.log(`\n⚠️  mcp-remote proxy detected`);
       console.log(`   Package: mcp-remote (OAuth authentication bridge)`);
-      console.log(`   Reason: Extremely long and unpredictable authorization times (90+ seconds)`);
-      console.log(`   Status: Supporting mcp-remote requires more development time`);
-      console.log(`   Recommendation: Use direct MCP server connections when possible`);
+      console.log(`   Known Issues: Extremely long and unpredictable authorization times (90+ seconds)`);
 
-      // Return minimal protocol data indicating unsupported
-      return {
-        serverInfo: { name: config.serverName, version: 'mcp-remote-unsupported' },
-        tools: [],
-        resources: [],
-        prompts: [],
-        executionLogs: [
-          'mcp-remote detected but currently unsupported',
-          'Reason: Extremely long and unpredictable authorization times',
-          'Supporting mcp-remote requires additional development time'
-        ],
-        networkActivity: [],
-        fileSystemActivity: []
-      };
+      if (!options.allowMcpRemote) {
+        console.log(`   Status: BLOCKED by default (use --allow-mcp-remote to enable)`);
+        console.log(`   Recommendation: Use direct MCP server connections when possible`);
+
+        // Return minimal protocol data indicating blocked
+        return {
+          serverInfo: { name: config.serverName, version: 'mcp-remote-blocked' },
+          tools: [],
+          resources: [],
+          prompts: [],
+          executionLogs: [
+            'mcp-remote detected and blocked by default',
+            'Reason: Extremely long and unpredictable authorization times',
+            'Use --allow-mcp-remote flag to enable (not recommended)'
+          ],
+          networkActivity: [],
+          fileSystemActivity: []
+        };
+      } else {
+        console.log(`   Status: ALLOWED by --allow-mcp-remote flag`);
+        console.log(`   ⚠️  WARNING: This may timeout or behave unpredictably`);
+        console.log(`   Proceeding with analysis...`);
+      }
     }
 
     let client: any = null;

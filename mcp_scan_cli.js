@@ -30,6 +30,7 @@ Options:
   --mode MODE        Analysis mode: static, dynamic, hybrid (default: auto)
   --timeout MS       Timeout in milliseconds (default: 300000)
   --api-key KEY      API key for authenticated MCP servers (will auto-detect service)
+  --allow-mcp-remote Allow scanning of mcp-remote proxy servers (disabled by default for security)
   --help             Show this help
 
 Examples:
@@ -84,6 +85,9 @@ Examples:
           console.error('--api-key requires a value');
           process.exit(1);
         }
+        break;
+      case '--allow-mcp-remote':
+        options.allowMcpRemote = true;
         break;
       case '--help':
       case '-h':
