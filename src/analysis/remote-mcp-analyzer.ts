@@ -230,13 +230,27 @@ export class RemoteMCPAnalyzer {
       if (transportType === 'sse') {
         // Server-Sent Events transport
         const { SSEClientTransport } = await import('@modelcontextprotocol/sdk/client/sse.js');
-        transport = new SSEClientTransport(new URL(effectiveUrl));
-        // Note: SSE doesn't support custom headers in the same way, auth would be via query params
+
+        // For SSE, pass Bearer token as query param if available (fallback method)
+        if (authHeaders.Authorization) {
+          const urlWithAuth = new URL(effectiveUrl);
+          const token = authHeaders.Authorization.replace('Bearer ', '');
+          urlWithAuth.searchParams.set('access_token', token);
+          transport = new SSEClientTransport(urlWithAuth);
+        } else {
+          transport = new SSEClientTransport(new URL(effectiveUrl));
+        }
       } else {
         // HTTP Streaming transport (most common for remote servers)
         const { StreamableHTTPClientTransport } = await import('@modelcontextprotocol/sdk/client/streamableHttp.js');
-        transport = new StreamableHTTPClientTransport(new URL(effectiveUrl));
-        // Note: Auth headers are handled at the connection level, not transport level
+        transport = new StreamableHTTPClientTransport(
+          new URL(effectiveUrl),
+          {
+            requestInit: {
+              headers: authHeaders
+            }
+          }
+        );
       }
 
       // Create MCP client

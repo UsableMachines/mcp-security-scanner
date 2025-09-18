@@ -444,7 +444,16 @@ export class ParallelAnalysisOrchestrator {
 
         if (isRemote) {
           console.log(`🌐 Detected remote MCP server: ${serverName}`);
-          const url = config.url || config.serverUrl || config.httpUrl;
+          // Extract URL from config fields or from args (for mcp-remote style servers)
+          let url = config.url || config.serverUrl || config.httpUrl;
+
+          // If no direct URL found, check args for HTTP/HTTPS URLs (mcp-remote pattern)
+          if (!url && config.args) {
+            url = config.args.find((arg: string) =>
+              arg.includes('http://') || arg.includes('https://')
+            );
+          }
+
           const detectedType = this.detectTransportType(config.type, url);
           remoteConfigs.push({
             serverName,
