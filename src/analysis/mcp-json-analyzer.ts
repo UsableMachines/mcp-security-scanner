@@ -8,6 +8,8 @@ import { promisify } from 'util';
 import { exec } from 'child_process';
 import { AIRouter } from '../services/ai-router';
 import { SandboxManager } from '../sandbox/sandbox-manager';
+import { ScannerOrchestrator } from '../services/scanner-orchestrator';
+import { DockerImageTarget } from '../services/vulnerability-scanner';
 import {
   parseAndValidateMCPConfig,
   getServersFromConfig,
@@ -109,10 +111,12 @@ export interface NetworkAnalysisResult {
 export class MCPJsonAnalyzer {
   private aiRouter: AIRouter;
   private sandboxManager: SandboxManager;
+  private scannerOrchestrator: ScannerOrchestrator;
 
   constructor(aiRouter: AIRouter, sandboxManager: SandboxManager) {
     this.aiRouter = aiRouter;
     this.sandboxManager = sandboxManager;
+    this.scannerOrchestrator = new ScannerOrchestrator();
   }
 
   /**
@@ -330,7 +334,7 @@ export class MCPJsonAnalyzer {
     };
   }
 
-  async analyzeMCPConfiguration(mcpConfigInput: any): Promise<MCPJsonAnalysis> {
+  async analyzeMCPConfiguration(mcpConfigInput: any, options: { allowMcpRemote?: boolean } = {}): Promise<MCPJsonAnalysis> {
     console.log('Starting static pattern analysis of MCP configuration...');
 
     // Validate configuration using Zod schema
@@ -345,12 +349,12 @@ export class MCPJsonAnalyzer {
     // Enhanced proxy/bridge detection BEFORE local execution redirect
     const { proxyServers, localExecutionServers } = this.categorizeServers(mcpConfig);
 
-    // Only redirect to --repo if we have LOCAL servers (not proxy/bridge servers)
-    if (localExecutionServers.length > 0) {
+    // Only redirect to --repo if we have LOCAL servers (not proxy/bridge servers) and allowMcpRemote is not set
+    if (localExecutionServers.length > 0 && !options.allowMcpRemote) {
       const serverNames = localExecutionServers.map(([name]) => name);
       const commands = localExecutionServers.map(([_, config]: [string, MCPServerConfig]) => config.command);
 
-      const message = `\n❌ LOCAL EXECUTION DETECTED\nServers "${serverNames.join('", "')}" use "${commands.join('", "')}" commands.\n\nUse repository analysis instead:\nyarn node mcp_scan_cli.js --repo <github_repository_url>`;
+      const message = `\n❌ LOCAL EXECUTION DETECTED\nServers "${serverNames.join('", "')}" use "${commands.join('", "')}" commands.\n\nUse repository analysis instead:\nyarn node mcp_scan_cli.js --repo <github_repository_url>\n\nOr use --allow-mcp-remote flag to bypass this check (not recommended for untrusted servers)`;
       console.log(message);
       throw new Error('LOCAL_EXECUTION_REDIRECT');
     }
@@ -662,22 +666,32 @@ export class MCPJsonAnalyzer {
       });
     }
 
-    // Perform actual OSV vulnerability scanning of the Docker image
+    // Perform dual-scanner vulnerability scanning of the Docker image
     try {
-      const osvResults = await this.sandboxManager.scanDockerImageWithOSV(dockerImage);
+      console.log(`Scanning Docker image: ${dockerImage} using dual scanner system (OSV + Trivy)`);
 
-      if (osvResults.totalVulnerabilities > 0) {
-        const { critical, high, medium, low } = osvResults.severityBreakdown;
+      const scanTarget: DockerImageTarget = {
+        type: 'docker-image',
+        imageId: dockerImage,
+        imageName: dockerImage
+      };
 
+      const combinedResults = await this.scannerOrchestrator.scan(scanTarget);
+
+      // Use combined results for vulnerability analysis
+      const totalVulnerabilities = combinedResults.totalUniqueVulnerabilities;
+      const { critical, high, medium, low } = combinedResults.combinedSeverityBreakdown;
+
+      if (totalVulnerabilities > 0) {
         if (critical > 0) {
           risks.push({
             type: 'PRIVILEGED_CONTAINER', // Reusing enum for critical vulns
             severity: 'critical',
             description: `Server "${serverName}" uses Docker image "${dockerImage}" with ${critical} CRITICAL vulnerabilities`,
-            evidence: osvResults.vulnerabilities
-              .filter(v => v.severity === 'critical')
+            evidence: combinedResults.combinedVulnerabilities
+              .filter((v: any) => v.severity === 'critical')
               .slice(0, 3)
-              .map(v => `${v.id}: ${v.summary}`),
+              .map((v: any) => `${v.id}: ${v.title} (${v.source})`),
             mitigation: 'Update Docker image to a version without critical vulnerabilities',
             aiConfidence: 1.0
           });
@@ -688,10 +702,10 @@ export class MCPJsonAnalyzer {
             type: 'HOST_FILESYSTEM_ACCESS', // Reusing enum for high vulns
             severity: 'high',
             description: `Server "${serverName}" uses Docker image "${dockerImage}" with ${high} HIGH severity vulnerabilities`,
-            evidence: osvResults.vulnerabilities
-              .filter(v => v.severity === 'high')
+            evidence: combinedResults.combinedVulnerabilities
+              .filter((v: any) => v.severity === 'high')
               .slice(0, 3)
-              .map(v => `${v.id}: ${v.summary}`),
+              .map((v: any) => `${v.id}: ${v.title} (${v.source})`),
             mitigation: 'Update Docker image or apply security patches',
             aiConfidence: 0.95
           });
@@ -702,23 +716,27 @@ export class MCPJsonAnalyzer {
             type: 'UNVERIFIED_PACKAGE',
             severity: 'medium',
             description: `Server "${serverName}" uses Docker image "${dockerImage}" with ${medium} MEDIUM severity vulnerabilities`,
-            evidence: [`Total vulnerabilities: ${osvResults.totalVulnerabilities}`, `Medium: ${medium}, Low: ${low}`],
+            evidence: [`Total vulnerabilities: ${totalVulnerabilities}`, `Medium: ${medium}, Low: ${low}`],
             mitigation: 'Consider updating Docker image for improved security',
             aiConfidence: 0.8
           });
         }
+
+        // Log scanner comparison for debugging
+        console.log(`📊 Scanner comparison: OSV: ${combinedResults.scannerComparison.osvOnly}, Trivy: ${combinedResults.scannerComparison.trivyOnly}, Both: ${combinedResults.scannerComparison.bothScanners}`);
+
       } else {
-        console.log(`✅ Docker image "${dockerImage}" - No vulnerabilities found`);
+        console.log(`✅ Docker image "${dockerImage}" - No vulnerabilities found by dual scanner system`);
       }
     } catch (error) {
-      // If OSV scanning fails, don't flag the image as insecure - just log the issue
-      console.warn(`OSV scanning failed for Docker image "${dockerImage}": ${error instanceof Error ? error.message : String(error)}`);
+      // If dual scanning fails, don't flag the image as insecure - just log the issue
+      console.warn(`Dual vulnerability scanning failed for Docker image "${dockerImage}": ${error instanceof Error ? error.message : String(error)}`);
       risks.push({
         type: 'UNVERIFIED_PACKAGE',
         severity: 'medium',
         description: `Server "${serverName}" uses Docker image "${dockerImage}" - vulnerability scanning failed`,
-        evidence: ['OSV Scanner could not analyze image', `Error: ${error instanceof Error ? error.message : String(error)}`],
-        mitigation: 'Manually verify Docker image security or check OSV Scanner configuration',
+        evidence: ['Dual scanner system could not analyze image', `Error: ${error instanceof Error ? error.message : String(error)}`],
+        mitigation: 'Manually verify Docker image security or check scanner configuration',
         aiConfidence: 0.5
       });
     }

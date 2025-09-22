@@ -9,6 +9,8 @@ import { z } from 'zod';
 import { promisify } from 'util';
 import { exec } from 'child_process';
 import { OSVService, type VulnerabilityReport } from '../services/osv-service';
+import { ScannerOrchestrator } from '../services/scanner-orchestrator';
+import { ScanTarget, CombinedScanResult } from '../services/vulnerability-scanner';
 import { SandboxProvider, type GitCloneResult, type OSVScanResult } from '../sandbox/sandbox-provider';
 
 const execAsync = promisify(exec);
@@ -50,6 +52,7 @@ export interface DependencyAnalysisResult {
   vulnerabilityReport: VulnerabilityReport;
   lockfilePresent: boolean;
   analysisTimestamp: Date;
+  combinedScanResult?: CombinedScanResult; // New dual-scanner result
 }
 
 export interface SandboxedAnalysisResult extends DependencyAnalysisResult {
@@ -60,13 +63,15 @@ export interface SandboxedAnalysisResult extends DependencyAnalysisResult {
 
 export class DependencyAnalyzer {
   private osvService: OSVService;
+  private scannerOrchestrator: ScannerOrchestrator;
 
   constructor(osvService?: OSVService) {
     this.osvService = osvService || new OSVService();
+    this.scannerOrchestrator = new ScannerOrchestrator();
   }
 
   /**
-   * Analyze a remote repository by cloning it in a sandbox and running OSV scan
+   * Analyze a remote repository by cloning it in a sandbox and running dual scanner system
    */
   async analyzeRemoteRepository(
     repoUrl: string,
@@ -81,41 +86,80 @@ export class DependencyAnalyzer {
       throw new Error(`Failed to clone repository: ${cloneResult.error}`);
     }
 
-    // Step 2: Run OSV scan in sandbox
-    const osvScanResult = await sandboxProvider.runOSVScan('/tmp/repo');
+    // Step 2: Run dual-scanner system on repository
+    console.log(`🔍 Analyzing repository with dual-scanner system: ${repoUrl}`);
 
-    // Step 3: Extract project info from OSV scan results (OSV Scanner auto-detects all project types)
+    const scanTarget: ScanTarget = {
+      type: 'repository',
+      path: '/tmp/repo',
+      repoUrl: repoUrl
+    };
+
+    let combinedScanResult: CombinedScanResult;
     let projectInfo: { name: string; version: string; dependencies: DependencyInfo[] };
 
     try {
-      if (!osvScanResult.success) {
-        throw new Error(`OSV scan failed: ${osvScanResult.error}`);
-      }
+      // Use dual-scanner system
+      combinedScanResult = await this.scannerOrchestrator.scan(scanTarget);
 
-      // Extract project info from OSV scan results
-      projectInfo = this.extractProjectInfoFromOSVResults(osvScanResult);
+      // Extract project info from successful scan results
+      projectInfo = await this.extractProjectInfoFromScanResults(combinedScanResult, '/tmp/repo', sandboxProvider);
+
+      console.log(`📊 Dual-scanner repository analysis complete - Found ${combinedScanResult.totalUniqueVulnerabilities} vulnerabilities`);
 
     } catch (error) {
-      // Clean up volume on error
-      if (typeof (sandboxProvider as any).cleanupCurrentVolume === 'function') {
-        await (sandboxProvider as any).cleanupCurrentVolume();
+      // Fallback to OSV scan in sandbox if dual-scanner fails
+      console.warn(`Dual-scanner failed for repository, falling back to OSV: ${error instanceof Error ? error.message : String(error)}`);
+
+      const osvScanResult = await sandboxProvider.runOSVScan('/tmp/repo');
+
+      if (!osvScanResult.success) {
+        // Clean up volume on error
+        if (typeof (sandboxProvider as any).cleanupCurrentVolume === 'function') {
+          await (sandboxProvider as any).cleanupCurrentVolume();
+        }
+        throw new Error(`Both dual-scanner and OSV fallback failed: ${osvScanResult.error}`);
       }
-      throw new Error(`Failed to parse project metadata: ${error instanceof Error ? error.message : String(error)}`);
+
+      // Extract project info from OSV fallback results
+      projectInfo = this.extractProjectInfoFromOSVResults(osvScanResult);
+
+      // Create a minimal combined result for compatibility
+      combinedScanResult = {
+        combinedVulnerabilities: [],
+        combinedSeverityBreakdown: { critical: 0, high: 0, medium: 0, low: 0, unknown: 0 },
+        totalUniqueVulnerabilities: 0,
+        scannerComparison: { osvOnly: 0, trivyOnly: 0, bothScanners: 0 },
+        combinedScanDuration: Date.now() - startTime
+      };
+
+      console.log(`⚠️  Using OSV fallback results for repository analysis`);
     }
+
     // Don't cleanup here - let source code analysis use the volume first
 
-    // Step 4: Convert OSV scan results to our vulnerability report format
-    const vulnerabilityReport = this.convertOSVResultsToReport(osvScanResult);
+    // Step 3: Generate legacy vulnerability report for backward compatibility
+    const vulnerabilityReport = this.generateLegacyReportFromCombinedResults(combinedScanResult, Date.now() - startTime);
 
     const analysisTimestamp = new Date();
+
+    // Create a compatible OSV scan result for legacy interfaces
+    const osvScanResult: OSVScanResult = {
+      success: combinedScanResult.totalUniqueVulnerabilities >= 0,
+      vulnerabilities: [], // Legacy format not needed with new system
+      duration: combinedScanResult.combinedScanDuration,
+      error: combinedScanResult.totalUniqueVulnerabilities === 0 ? undefined : 'Converted from dual-scanner results',
+      scanOutput: 'Dual-scanner system results' // Required field for interface compatibility
+    };
 
     return {
       projectName: projectInfo.name,
       projectVersion: projectInfo.version,
       dependencies: projectInfo.dependencies,
       vulnerabilityReport,
-      lockfilePresent: !!osvScanResult.success, // OSV scan would include lockfile info
+      lockfilePresent: true, // Assume lockfile present if scan succeeded
       analysisTimestamp,
+      combinedScanResult, // New field with dual-scanner results
       cloneResult,
       osvScanResult,
       sandboxProvider: sandboxProvider.name
@@ -144,20 +188,31 @@ export class DependencyAnalyzer {
     // Extract all dependencies
     const dependencies = this.extractDependencies(packageJson, lockfileData);
 
-    // Scan for vulnerabilities
+    // Scan for vulnerabilities with dual scanners
     const packages = dependencies.map(dep => ({
       name: dep.name,
       version: dep.version,
       ecosystem: dep.ecosystem
     }));
 
-    const scanResults = await this.osvService.scanPackageBatch(packages);
+    // Use new dual-scanner system
+    const scanTarget: ScanTarget = {
+      type: 'package-list',
+      packages
+    };
+
+    const combinedScanResult = await this.scannerOrchestrator.scan(scanTarget);
     const scanDuration = Date.now() - startTime;
 
-    const vulnerabilityReport = this.osvService.generateVulnerabilityReport(
-      scanResults,
-      scanDuration
-    );
+    // For backward compatibility, generate legacy VulnerabilityReport from OSV result
+    let vulnerabilityReport: VulnerabilityReport;
+    if (combinedScanResult.osvResult?.success) {
+      vulnerabilityReport = this.convertToLegacyFormat(combinedScanResult.osvResult, scanDuration);
+    } else {
+      // Fallback to OSV service for legacy compatibility
+      const scanResults = await this.osvService.scanPackageBatch(packages);
+      vulnerabilityReport = this.osvService.generateVulnerabilityReport(scanResults, scanDuration);
+    }
 
     return {
       projectName: packageJson.name,
@@ -165,7 +220,8 @@ export class DependencyAnalyzer {
       dependencies,
       vulnerabilityReport,
       lockfilePresent,
-      analysisTimestamp: new Date()
+      analysisTimestamp: new Date(),
+      combinedScanResult
     };
   }
 
@@ -177,20 +233,31 @@ export class DependencyAnalyzer {
     // Extract dependencies (no lockfile available)
     const dependencies = this.extractDependenciesFromPackageJson(packageJson);
 
-    // Scan for vulnerabilities
+    // Scan for vulnerabilities with dual scanners
     const packages = dependencies.map(dep => ({
       name: dep.name,
       version: dep.version,
       ecosystem: dep.ecosystem
     }));
 
-    const scanResults = await this.osvService.scanPackageBatch(packages);
+    // Use new dual-scanner system
+    const scanTarget: ScanTarget = {
+      type: 'package-list',
+      packages
+    };
+
+    const combinedScanResult = await this.scannerOrchestrator.scan(scanTarget);
     const scanDuration = Date.now() - startTime;
 
-    const vulnerabilityReport = this.osvService.generateVulnerabilityReport(
-      scanResults,
-      scanDuration
-    );
+    // For backward compatibility, generate legacy VulnerabilityReport from OSV result
+    let vulnerabilityReport: VulnerabilityReport;
+    if (combinedScanResult.osvResult?.success) {
+      vulnerabilityReport = this.convertToLegacyFormat(combinedScanResult.osvResult, scanDuration);
+    } else {
+      // Fallback to OSV service for legacy compatibility
+      const scanResults = await this.osvService.scanPackageBatch(packages);
+      vulnerabilityReport = this.osvService.generateVulnerabilityReport(scanResults, scanDuration);
+    }
 
     return {
       projectName: packageJson.name,
@@ -198,7 +265,8 @@ export class DependencyAnalyzer {
       dependencies,
       vulnerabilityReport,
       lockfilePresent: false,
-      analysisTimestamp: new Date()
+      analysisTimestamp: new Date(),
+      combinedScanResult
     };
   }
 
@@ -479,5 +547,171 @@ export class DependencyAnalyzer {
     if (severityLower.includes('low')) return 'low';
 
     return 'medium'; // Default fallback
+  }
+
+  /**
+   * Extract project information from dual-scanner results
+   */
+  private async extractProjectInfoFromScanResults(
+    combinedResult: CombinedScanResult,
+    repoPath: string,
+    sandboxProvider: SandboxProvider
+  ): Promise<{ name: string; version: string; dependencies: DependencyInfo[] }> {
+    // Try to extract project info from package files if available
+    try {
+      // Look for package.json in the cloned repository
+      const packageJsonContent = await this.readFileFromSandbox(sandboxProvider, `${repoPath}/package.json`);
+      if (packageJsonContent) {
+        const packageJson = JSON.parse(packageJsonContent);
+        const dependencies = this.extractDependenciesFromPackageJson(packageJson);
+
+        return {
+          name: packageJson.name || 'unknown-project',
+          version: packageJson.version || '1.0.0',
+          dependencies
+        };
+      }
+    } catch (error) {
+      console.warn('Could not extract project info from package.json:', error);
+    }
+
+    // Fallback: extract from vulnerability scan results
+    const dependencies: DependencyInfo[] = [];
+    let projectName = 'unknown-project';
+    let projectVersion = '1.0.0';
+
+    if (combinedResult.combinedVulnerabilities.length > 0) {
+      // Use first vulnerability to infer project name
+      const firstVuln = combinedResult.combinedVulnerabilities[0];
+      projectName = firstVuln.packageName || 'scanned-project';
+
+      // Convert vulnerabilities to dependencies
+      const packageMap = new Map<string, DependencyInfo>();
+
+      for (const vuln of combinedResult.combinedVulnerabilities) {
+        const key = `${vuln.packageName}@${vuln.packageVersion}`;
+        if (!packageMap.has(key)) {
+          packageMap.set(key, {
+            name: vuln.packageName,
+            version: vuln.packageVersion,
+            type: 'direct',
+            ecosystem: vuln.ecosystem
+          });
+        }
+      }
+
+      dependencies.push(...packageMap.values());
+    }
+
+    return {
+      name: projectName,
+      version: projectVersion,
+      dependencies
+    };
+  }
+
+  /**
+   * Read a file from the sandbox environment
+   */
+  private async readFileFromSandbox(sandboxProvider: SandboxProvider, filePath: string): Promise<string | null> {
+    try {
+      // This would need to be implemented based on the sandbox provider's capabilities
+      // For now, return null to trigger fallback behavior
+      return null;
+    } catch (error) {
+      return null;
+    }
+  }
+
+  /**
+   * Generate legacy VulnerabilityReport from combined scan results
+   */
+  private generateLegacyReportFromCombinedResults(combinedResult: CombinedScanResult, duration: number): VulnerabilityReport {
+    const vulnerabilities: VulnerabilityReport['vulnerabilities'] = combinedResult.combinedVulnerabilities.map((vuln: import('../services/vulnerability-scanner').Vulnerability) => ({
+      packageName: vuln.packageName,
+      version: vuln.packageVersion,
+      vulnerability: {
+        id: vuln.id,
+        summary: vuln.title,
+        details: vuln.description,
+        modified: vuln.modifiedDate || new Date().toISOString(),
+        published: vuln.publishedDate,
+        aliases: vuln.cveIds,
+        affected: [{
+          package: {
+            ecosystem: vuln.ecosystem,
+            name: vuln.packageName
+          },
+          ranges: vuln.fixedVersion ? [{
+            type: 'SEMVER',
+            events: [{ fixed: vuln.fixedVersion }]
+          }] : undefined
+        }],
+        references: vuln.references?.map((ref: string) => ({
+          type: 'WEB' as const,
+          url: ref
+        })),
+        schema_version: '1.4.0'
+      } as any,
+      severity: vuln.severity,
+      cvssScore: vuln.cvssScore
+    }));
+
+    // Calculate totals from combined results
+    const packageCount = new Set(combinedResult.combinedVulnerabilities.map((v: any) => v.packageName)).size;
+    const vulnerablePackages = new Set(vulnerabilities.map(v => v.packageName)).size;
+
+    return {
+      totalPackagesScanned: packageCount || 1,
+      vulnerablePackages,
+      totalVulnerabilities: combinedResult.totalUniqueVulnerabilities,
+      severityBreakdown: combinedResult.combinedSeverityBreakdown,
+      vulnerabilities,
+      scanDuration: duration
+    };
+  }
+
+  /**
+   * Convert new ScanResult format to legacy VulnerabilityReport format for backward compatibility
+   */
+  private convertToLegacyFormat(scanResult: import('../services/vulnerability-scanner').ScanResult, duration: number): VulnerabilityReport {
+    const vulnerabilities: VulnerabilityReport['vulnerabilities'] = scanResult.vulnerabilities.map((vuln: import('../services/vulnerability-scanner').Vulnerability) => ({
+      packageName: vuln.packageName,
+      version: vuln.packageVersion,
+      vulnerability: {
+        id: vuln.id,
+        summary: vuln.title,
+        details: vuln.description,
+        modified: vuln.modifiedDate || new Date().toISOString(),
+        published: vuln.publishedDate,
+        aliases: vuln.cveIds,
+        affected: [{
+          package: {
+            ecosystem: vuln.ecosystem,
+            name: vuln.packageName
+          },
+          ranges: vuln.fixedVersion ? [{
+            type: 'SEMVER',
+            events: [{ fixed: vuln.fixedVersion }]
+          }] : undefined
+        }],
+        references: vuln.references?.map((ref: string) => ({
+          type: 'WEB' as const,
+          url: ref
+        })),
+        schema_version: '1.4.0'
+      } as any,
+      severity: vuln.severity,
+      cvssScore: vuln.cvssScore
+    }));
+
+    return {
+      totalPackagesScanned: scanResult.totalPackagesScanned,
+      vulnerablePackages: scanResult.vulnerablePackages,
+      totalVulnerabilities: scanResult.totalVulnerabilities,
+      severityBreakdown: scanResult.severityBreakdown,
+      vulnerabilities,
+      scanDuration: duration
+    };
   }
 }

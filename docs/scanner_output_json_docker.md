@@ -1,5 +1,5 @@
 yarn node mcp_scan_cli.js --json
-[dotenv@17.2.2] injecting env (5) from .env -- tip: 📡 auto-backup env with Radar: https://dotenvx.com/radar
+[dotenv@17.2.2] injecting env (8) from .env -- tip: 📡 observe env with Radar: https://dotenvx.com/radar
 🔒 MCP Security Scanner v0.1.0
 Analysis: Black Box (MCP JSON configuration)
 
@@ -52,49 +52,41 @@ Starting JSON analysis of MCP server: json-analysis-mode
    Detected servers that need authentication
 Enter API key: BSAzlbVXTX867mJYZ6-2RMg1AC0n7ae
 ✅ API key provided
-🔍 Running enhanced MCP JSON configuration analysis...
-📦 Extracted 1 Docker configs for behavioral analysis
-🔑 Injecting API key into 1 Docker configurations...
 🔑 Detected api_key pattern: BRAVE_API_KEY (was: "YOUR_API_KEY_HERE")
-✅ Injected API key into 1 environment variables for: brave-search
 Starting static pattern analysis of MCP configuration...
 Analyzing server: brave-search
 Analyzing local execution configuration: brave-search
-DEBUG: Command="docker", Args=["run","-i","--rm","-e","BRAVE_API_KEY","mcp/brave-search"]
-DEBUG: Docker parsing result for brave-search: {
-  image: 'mcp/brave-search',
-  isPrivileged: false,
-  volumes: [],
-  networkMode: null
-}
-Scanning Docker image: mcp/brave-search
-Scanning Docker image: mcp/brave-search using OSV Scanner Docker image
-Pulling Docker image: mcp/brave-search
+Scanning Docker image: mcp/brave-search using dual scanner system (OSV + Trivy)
+Running vulnerability scan with: trivy
 🐳 Found 1 Docker MCP servers for behavioral analysis
 🐳 Starting parallel Docker behavioral analysis for 1 servers...
 🔍 Analyzing Docker MCP server: brave-search (mcp/brave-search)
 🚀 Starting Docker MCP server: mcp/brave-search
 🔍 Docker command: docker run --rm -i -e BRAVE_API_KEY=BSAzlbVXTX867mJYZ6-2RMg1AC0n7ae mcp/brave-search
 🤝 Establishing MCP connection to brave-search...
-🔄 Executing 2 JSON analysis tasks in parallel...
+Trivy stderr: 2025-09-22T13:29:00-04:00	INFO	[vuln] Vulnerability scanning is enabled
+2025-09-22T13:29:00-04:00	INFO	[secret] Secret scanning is enabled
+2025-09-22T13:29:00-04:00	INFO	[secret] If your scanning is slow, please try '--scanners vuln' to disable secret scanning
+2025-09-22T13:29:00-04:00	INFO	[secret] Please see also https://trivy.dev/v0.65/docs/scanner/secret#recommendation for faster secret detection
+2025-09-22T13:29:00-04:00	INFO	Detected OS	family="alpine" version="3.22.1"
+2025-09-22T13:29:00-04:00	INFO	[alpine] Detecting vulnerabilities...	os_version="3.22" repository="3.22" pkg_num=19
+2025-09-22T13:29:00-04:00	INFO	Number of language-specific files	num=1
+2025-09-22T13:29:00-04:00	INFO	[node-pkg] Detecting vulnerabilities...
+
+✅ Docker image "mcp/brave-search" - No vulnerabilities found by dual scanner system
 🔍 Discovering server capabilities...
 ✅ Discovery complete: 6 tools, 0 resources, 0 prompts
 🤖 Running AI analysis on protocol data for brave-search...
 🔍 Running MCP prompt security analysis for server: brave-search
 🔍 Analyzing MCP server "brave-search" for prompt security vulnerabilities...
    Tools to analyze: 6
-Saving Docker image to tar: /tmp/mcp_brave-search.tar
-Running OSV scan command: docker run --rm -v /tmp/mcp_brave-search.tar:/tmp/mcp_brave-search.tar ghcr.io/google/osv-scanner:latest scan image --archive --format=json /tmp/mcp_brave-search.tar
-OSV scan completed for mcp/brave-search
-✅ Docker image "mcp/brave-search" - No vulnerabilities found
-✅ Docker image "mcp/brave-search" - No vulnerabilities found
 ✅ Docker analysis completed for: brave-search
 🐳 Parallel Docker analysis complete: 1/1 successful
-✅ Enhanced MCP JSON analysis completed in 32572ms
+✅ Enhanced MCP JSON analysis completed in 25860ms
 🐳 Docker behavioral analysis: 1 servers analyzed
 MCP JSON analysis complete: 0 security risks identified
 🐳 Docker behavioral analysis: 1 Docker servers analyzed with runtime behavior
-Scan complete in 40033ms - Overall risk: HIGH
+Scan complete in 36701ms - Overall risk: HIGH
 
 =====================================
 🔍 SECURITY ANALYSIS COMPLETE
@@ -103,102 +95,19 @@ Scan complete in 40033ms - Overall risk: HIGH
 📊 SUMMARY:
    Analysis Mode: JSON
    Overall Risk:  HIGH
-   Duration:      40033ms
-   Timestamp:     2025-09-18T01:02:46.706Z
-
-🔬 BEHAVIORAL ANALYSIS:
-   ⚠️  Skipped (static-only analysis mode)
+   Duration:      36701ms
+   Timestamp:     2025-09-22T17:29:26.357Z
 
 🐳 DOCKER BEHAVIORAL ANALYSIS:
    Docker Servers:       1
    Total Risks:          18
 
-🔍 DOCKER BEHAVIORAL RISKS FOUND:
-
-   Server: brave-search (mcp/brave-search)
-   Execution: ✅ Success
-   Network Connections: 0
-   File Operations: 0
-   Security Risks:
-      1. TOOL POISONING (MEDIUM)
-         Tool "brave_web_search" description contains suspicious formatting that could hide instructions
-         Confidence: NaN%
-         Evidence: Excessive whitespace
-      2. DATA EXFILTRATION (HIGH)
-         Tool "brave_web_search" has parameters that could be used for data exfiltration
-         Confidence: NaN%
-         Evidence: query (overly broad type), text_decorations...
-      3. CROSS ORIGIN VIOLATION (MEDIUM)
-         Tool "brave_web_search" references other MCP servers or external services
-         Confidence: NaN%
-         Evidence: searchapi
-      4. TOOL POISONING (MEDIUM)
-         Tool "brave_local_search" description contains suspicious formatting that could hide instructions
-         Confidence: NaN%
-         Evidence: Excessive whitespace
-      5. DATA EXFILTRATION (HIGH)
-         Tool "brave_local_search" has parameters that could be used for data exfiltration
-         Confidence: NaN%
-         Evidence: query (overly broad type), text_decorations...
-      6. CROSS ORIGIN VIOLATION (MEDIUM)
-         Tool "brave_local_search" references other MCP servers or external services
-         Confidence: NaN%
-         Evidence: searchapi, thisapi
-      7. DATA EXFILTRATION (HIGH)
-         Tool "brave_video_search" has parameters that could be used for data exfiltration
-         Confidence: NaN%
-         Evidence: query (overly broad type), country (overly broad type)...
-      8. SENSITIVE FILE ACCESS (HIGH)
-         Tool "brave_video_search" references sensitive files or credentials
-         Confidence: NaN%
-         Evidence: key
-      9. CROSS ORIGIN VIOLATION (MEDIUM)
-         Tool "brave_video_search" references other MCP servers or external services
-         Confidence: NaN%
-         Evidence: searchapi
-      10. DATA EXFILTRATION (HIGH)
-         Tool "brave_image_search" has parameters that could be used for data exfiltration
-         Confidence: NaN%
-         Evidence: query (overly broad type), country (overly broad type)...
-      11. CROSS ORIGIN VIOLATION (MEDIUM)
-         Tool "brave_image_search" references other MCP servers or external services
-         Confidence: NaN%
-         Evidence: searchapi
-      12. TOOL POISONING (MEDIUM)
-         Tool "brave_news_search" description contains suspicious formatting that could hide instructions
-         Confidence: NaN%
-         Evidence: Excessive whitespace
-      13. DATA EXFILTRATION (HIGH)
-         Tool "brave_news_search" has parameters that could be used for data exfiltration
-         Confidence: NaN%
-         Evidence: query (overly broad type), country (overly broad type)...
-      14. SENSITIVE FILE ACCESS (HIGH)
-         Tool "brave_news_search" references sensitive files or credentials
-         Confidence: NaN%
-         Evidence: cert
-      15. CROSS ORIGIN VIOLATION (MEDIUM)
-         Tool "brave_news_search" references other MCP servers or external services
-         Confidence: NaN%
-         Evidence: searchapi, reuterscom...
-      16. DATA EXFILTRATION (MEDIUM)
-         Tool "brave_summarizer" has parameters that could be used for data exfiltration
-         Confidence: NaN%
-         Evidence: key (overly broad type)
-      17. SENSITIVE FILE ACCESS (HIGH)
-         Tool "brave_summarizer" references sensitive files or credentials
-         Confidence: NaN%
-         Evidence: key
-      18. CROSS ORIGIN VIOLATION (MEDIUM)
-         Tool "brave_summarizer" references other MCP servers or external services
-         Confidence: NaN%
-         Evidence: summarizerapi
-
-🛡️  MCP PROMPT SECURITY ANALYSIS:
+🛡️  MCP Primitives:
    Server Name:       brave-search
    Tools Analyzed:    6
    Prompt Risks:      18
 
-⚠️  MCP PROMPT SECURITY RISKS IDENTIFIED:
+⚠️  MCP RISKS IDENTIFIED:
    1. TOOL POISONING (MEDIUM)
       Tool "brave_web_search" description contains suspicious formatting that could hide instructions
       Tool: brave_web_search
@@ -298,9 +207,6 @@ Scan complete in 40033ms - Overall risk: HIGH
    Suspicious Packages:   1
    Bridge Packages:       0
    Remote Endpoints:      0
-
-📦 SUSPICIOUS PACKAGES DETECTED:
-   1. BRAVE_API_KEY
 
 📝 SUMMARY:
 JSON security analysis completed using MCP JSON configuration analysis. Overall security risk assessed as HIGH. Immediate security review and remediation required before production deployment.

@@ -73,15 +73,44 @@ KINDO_API_KEY=your-kindo-key
 KINDO_LLM_BASE_URL=https://llm.kindo.ai/v1
 KINDO_MODEL=claude-sonnet-4-20250514
 
+# Vulnerability Scanner Configuration
+VULNERABILITY_SCANNER_OSV=true       # Enable OSV.dev vulnerability scanning
+VULNERABILITY_SCANNER_TRIVY=true     # Enable Trivy vulnerability scanning
+VULNERABILITY_SCANNER_MODE=both      # Scanning mode: osv, trivy, or both
+
 # Daytona (optional, for production sandbox)
 DAYTONA_API_ENDPOINT=https://your-instance.com/api
 DAYTONA_API_KEY=your-daytona-key
 ```
 
+## Vulnerability Scanner Configuration
+
+The scanner supports dual vulnerability detection engines that can be configured independently:
+
+### Scanner Options
+- **OSV Scanner**: Uses OSV.dev database for comprehensive vulnerability detection
+- **Trivy**: Industry-standard scanner with extensive CVE database coverage
+- **Dual Mode**: Run both scanners for maximum coverage with result comparison
+
+### Configuration
+```bash
+# .env configuration
+VULNERABILITY_SCANNER_OSV=true       # Enable OSV.dev scanning
+VULNERABILITY_SCANNER_TRIVY=true     # Enable Trivy scanning
+VULNERABILITY_SCANNER_MODE=both      # Options: osv, trivy, both
+```
+
+### Scanner Comparison
+When both scanners are enabled, you'll see:
+- **OSV-only vulnerabilities**: Found exclusively by OSV.dev
+- **Trivy-only vulnerabilities**: Found exclusively by Trivy
+- **Both scanners**: Vulnerabilities detected by both (highest confidence)
+- **Coverage analysis**: Comparative effectiveness of each scanner
+
 ## Key Features
 
 ### 🔍 **Dual-Mode Analysis**
-- **Static Analysis**: OSV.dev vulnerability scanning + AI-powered source code review for Python/TypeScript projects
+- **Static Analysis**: Configurable vulnerability scanning (OSV.dev + Trivy) + AI-powered source code review for Python/TypeScript projects
 - **Dynamic Analysis**: Sandboxed execution monitoring for Docker containers and remote MCP servers
 
 ### 🔐 **OAuth 2.1 DCR Support** *(Latest - September 2025)*
@@ -96,9 +125,10 @@ DAYTONA_API_KEY=your-daytona-key
 - Contextual analysis beyond traditional dependency scanning
 
 ### 🐳 **Container Security**
-- Docker image CVE scanning using OSV Scanner
+- Dual-scanner vulnerability detection (OSV.dev + Trivy) with configurable scanner selection
+- Docker image CVE scanning with comprehensive vulnerability databases
 - Privileged container detection, dangerous volume mounts
-- Real vulnerability analysis with severity breakdown
+- Real vulnerability analysis with severity breakdown and scanner comparison
 
 ### 🔒 **Security-by-Default**
 - `--allow-mcp-remote` flag for dangerous proxy servers
@@ -154,7 +184,8 @@ src/
 ### August-September 2025
 - ✅ **Pattern-Based Security Analysis**: Eliminated all hardcoded values, scalable detection algorithms
 - ✅ **MCP Prompt Security Analysis**: 18 vulnerability categories with AI-powered detection
-- ✅ **Enhanced Docker Analysis**: Real CVE scanning with OSV Scanner integration
+- ✅ **Dual-Scanner Vulnerability Detection**: Configurable OSV.dev + Trivy integration with scanner comparison
+- ✅ **Enhanced Docker Analysis**: Real CVE scanning with comprehensive vulnerability database coverage
 - ✅ **Parallel Processing**: Improved performance through concurrent analysis execution
 
 ## Security Considerations

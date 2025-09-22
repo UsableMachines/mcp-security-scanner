@@ -128,9 +128,9 @@ export class ParallelAnalysisOrchestrator {
     // Task 1: Dependency Analysis (if not already done during clone)
     if (!options.skipDependencyAnalysis) {
       tasks.push(this.executeTask('dependency', async () => {
-        console.log('🔍 [Parallel] Running OSV dependency scan...');
-        // The dependency analysis was already done during clone, so we can reuse the result
-        // This task is essentially a no-op since clone already includes OSV scan
+        console.log('🔍 [Parallel] Running dual-scanner dependency analysis...');
+        // The dependency analysis was already done during clone using dual-scanner system
+        // This task is essentially a no-op since clone already includes dual-scanner analysis
         return null; // Will be populated from clone result
       }));
     }
@@ -304,7 +304,7 @@ export class ParallelAnalysisOrchestrator {
 
       // Traditional JSON analysis
       tasks.push(this.executeTask('json_analysis', async () => {
-        return await this.mcpJsonAnalyzer.analyzeMCPConfiguration(mcpJsonConfig);
+        return await this.mcpJsonAnalyzer.analyzeMCPConfiguration(mcpJsonConfig, { allowMcpRemote: options.allowMcpRemote });
       }));
 
       // Docker behavioral analysis (if Docker servers or proxy servers found)

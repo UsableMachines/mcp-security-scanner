@@ -30,6 +30,11 @@ const ConfigSchema = z.object({
   SCANNER_TIMEOUT: z.number().default(300000), // 5 minutes
   MAX_SOURCE_CODE_SIZE: z.number().default(50000), // 50KB
   ENABLE_NETWORK_ANALYSIS: z.boolean().default(true),
+
+  // Vulnerability scanner configuration
+  VULNERABILITY_SCANNER_OSV: z.boolean().default(true),
+  VULNERABILITY_SCANNER_TRIVY: z.boolean().default(true),
+  VULNERABILITY_SCANNER_MODE: z.enum(['osv', 'trivy', 'both']).default('both'),
   
   // Logging and debugging
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
@@ -70,6 +75,11 @@ class ConfigManager {
       SCANNER_TIMEOUT: process.env.SCANNER_TIMEOUT ? parseInt(process.env.SCANNER_TIMEOUT) : undefined,
       MAX_SOURCE_CODE_SIZE: process.env.MAX_SOURCE_CODE_SIZE ? parseInt(process.env.MAX_SOURCE_CODE_SIZE) : undefined,
       ENABLE_NETWORK_ANALYSIS: process.env.ENABLE_NETWORK_ANALYSIS !== 'false',
+
+      // Vulnerability scanner configuration
+      VULNERABILITY_SCANNER_OSV: process.env.VULNERABILITY_SCANNER_OSV !== 'false',
+      VULNERABILITY_SCANNER_TRIVY: process.env.VULNERABILITY_SCANNER_TRIVY !== 'false',
+      VULNERABILITY_SCANNER_MODE: process.env.VULNERABILITY_SCANNER_MODE,
       
       // Logging
       LOG_LEVEL: process.env.LOG_LEVEL,
@@ -115,6 +125,15 @@ class ConfigManager {
         apiEndpoint: config.DAYTONA_API_ENDPOINT,
         apiKey: config.DAYTONA_API_KEY
       } : undefined
+    };
+  }
+
+  getVulnerabilityScannerConfig() {
+    const config = this.config;
+    return {
+      enableOsv: config.VULNERABILITY_SCANNER_OSV,
+      enableTrivy: config.VULNERABILITY_SCANNER_TRIVY,
+      mode: config.VULNERABILITY_SCANNER_MODE
     };
   }
 
@@ -169,5 +188,6 @@ export type { Config };
 
 // Export commonly used configs
 export const kindoConfig = () => configManager.getKindoConfig();
-export const sandboxConfig = () => configManager.getSandboxConfig();  
+export const sandboxConfig = () => configManager.getSandboxConfig();
 export const aiAnalyzerConfig = () => configManager.getAIAnalyzerConfig();
+export const vulnerabilityScannerConfig = () => configManager.getVulnerabilityScannerConfig();
