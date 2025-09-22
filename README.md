@@ -2,6 +2,9 @@
 
 A TypeScript-based security scanner for MCP (Model Context Protocol) servers. Performs comprehensive security analysis through static code analysis, dynamic behavioral monitoring, containerized vulnerability scanning with Trivy, and AI-powered threat detection.
 
+- **Command Injection**, **Authentication Bypass**, **Tool Poisoning**, **Data Exfiltration**
+- **Privilege Escalation**, **Prompt Injection**, **Network Abuse**, **Supply Chain Attacks**
+
 ## Quick Start
 
 ### Analyze MCP Server Repository
@@ -296,10 +299,7 @@ When contributing to this security scanner:
 4. **Fail securely**: Error handling should not expose sensitive information
 5. **Audit dependencies**: Regularly scan for vulnerabilities in project dependencies
 
-## License & Usage
+## To Do
 
-This scanner focuses on MCP-specific vulnerabilities:
-- **Command Injection**, **Authentication Bypass**, **Tool Poisoning**, **Data Exfiltration**
-- **Privilege Escalation**, **Prompt Injection**, **Network Abuse**, **Supply Chain Attacks**
-
-When adding new analysis capabilities, focus on these MCP-specific attack vectors.
+- Add URLhaus look up for web consent re-redirects: https://urlhaus.abuse.ch/api/
+- Manage web consent browser detection vs CLI print promnpting. This works as a standalone cli tool but won't work for production use case with a GUI
