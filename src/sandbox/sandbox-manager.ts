@@ -5,6 +5,7 @@
 import { SandboxProvider, SandboxConfig, SandboxResult } from './sandbox-provider';
 import { DockerSandboxProvider } from './docker-provider';
 import { DaytonaSandboxProvider } from './daytona-provider';
+import { configManager } from '../config';
 
 export type SandboxProviderType = 'docker' | 'daytona' | 'auto';
 
@@ -32,7 +33,9 @@ export class SandboxManager {
     this.activeProvider = provider;
     await provider.initialize();
     
-    console.log(`Initialized sandbox provider: ${provider.name}`);
+    if (configManager.isDebugMode()) {
+      console.log(`Initialized sandbox provider: ${provider.name}`);
+    }
   }
 
   async cleanup(): Promise<void> {

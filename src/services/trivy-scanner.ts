@@ -1,92 +1,119 @@
 /**
  * Trivy vulnerability scanner implementation
- * Uses Trivy CLI for comprehensive security scanning
+ * Uses containerized Trivy (aquasec/trivy) for comprehensive security scanning in sandbox
  */
 
-import { exec } from 'child_process';
-import { promisify } from 'util';
-import { z } from 'zod';
 import { VulnerabilityScanner, ScanResult, Vulnerability, DockerImageTarget, RepositoryTarget, PackageListTarget } from './vulnerability-scanner';
+import { SandboxProvider } from '../sandbox/sandbox-provider';
 
-const execAsync = promisify(exec);
+// Trivy JSON output types (no validation, trust Trivy's output)
+interface TrivyVulnerability {
+  VulnerabilityID: string;
+  Title?: string;
+  Description?: string;
+  Severity: string;
+  CVSS?: Record<string, {
+    V3Score?: number;
+    V3Vector?: string;
+    V2Score?: number;
+    V2Vector?: string;
+  }>;
+  CweIDs?: string[];
+  References?: string[];
+  PublishedDate?: string;
+  LastModifiedDate?: string;
+  PkgName: string;
+  PkgPath?: string;
+  InstalledVersion: string;
+  FixedVersion?: string;
+  Status?: string;
+  Layer?: {
+    DiffID?: string;
+  };
+}
 
-// Trivy JSON output schemas
-const TrivySeveritySchema = z.enum(['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'UNKNOWN']);
+interface TrivyMisconfiguration {
+  Type?: string;
+  ID: string;
+  Title?: string;
+  Description?: string;
+  Severity: string;
+}
 
-const TrivyVulnerabilitySchema = z.object({
-  VulnerabilityID: z.string(),
-  Title: z.string().optional(),
-  Description: z.string().optional(),
-  Severity: TrivySeveritySchema,
-  CVSS: z.record(z.string(), z.object({
-    V3Score: z.number().optional(),
-    V3Vector: z.string().optional(),
-    V2Score: z.number().optional(),
-    V2Vector: z.string().optional()
-  })).optional(),
-  CweIDs: z.array(z.string()).optional(),
-  References: z.array(z.string()).optional(),
-  PublishedDate: z.string().optional(),
-  LastModifiedDate: z.string().optional(),
-  PkgName: z.string(),
-  PkgPath: z.string().optional(),
-  InstalledVersion: z.string(),
-  FixedVersion: z.string().optional(),
-  Status: z.string().optional(),
-  Layer: z.object({
-    DiffID: z.string().optional()
-  }).optional()
-});
+interface TrivySecret {
+  RuleID: string;
+  Category: string;
+  Severity: string;
+  Title: string;
+  Match: string;
+}
 
-const TrivyTargetSchema = z.object({
-  Target: z.string(),
-  Class: z.string().optional(),
-  Type: z.string().optional(),
-  Vulnerabilities: z.array(TrivyVulnerabilitySchema).optional()
-});
+interface TrivyTarget {
+  Target: string;
+  Class?: string;
+  Type?: string;
+  Vulnerabilities?: TrivyVulnerability[];
+  Misconfigurations?: TrivyMisconfiguration[];
+  Secrets?: TrivySecret[];
+}
 
-const TrivyResultSchema = z.object({
-  SchemaVersion: z.number(),
-  ArtifactName: z.string(),
-  ArtifactType: z.string(),
-  Metadata: z.record(z.string(), z.unknown()).optional(),
-  Results: z.array(TrivyTargetSchema)
-});
-
-type TrivyVulnerability = z.infer<typeof TrivyVulnerabilitySchema>;
-type TrivyResult = z.infer<typeof TrivyResultSchema>;
+interface TrivyResult {
+  SchemaVersion?: number;
+  ArtifactName?: string;
+  ArtifactType?: string;
+  Metadata?: Record<string, unknown>;
+  Results?: TrivyTarget[];
+}
 
 export class TrivyScanner extends VulnerabilityScanner {
   readonly name = 'trivy';
   private static readonly TIMEOUT = 300000; // 5 minutes
+  private sandboxProvider: SandboxProvider;
+
+  constructor(sandboxProvider: SandboxProvider) {
+    super();
+    this.sandboxProvider = sandboxProvider;
+  }
 
   async scanDockerImage(target: DockerImageTarget): Promise<ScanResult> {
     const startTime = Date.now();
 
     try {
-      let command: string;
+      let dockerCmd: string;
 
       if (target.tarballPath) {
-        // Scan from tarball
-        command = `trivy image --format json --timeout 5m --input "${target.tarballPath}"`;
+        // Scan from tarball - mount the tarball into the container
+        dockerCmd = [
+          'docker run --rm',
+          `-v ${target.tarballPath}:/tmp/image.tar`,
+          'aquasec/trivy:latest',
+          'image',
+          '--format json',
+          '--timeout 5m',
+          '--input /tmp/image.tar'
+        ].join(' ');
       } else if (target.imageId) {
-        // Scan by image ID (works for untagged images)
-        command = `trivy image --format json --timeout 5m "${target.imageId}"`;
+        // Scan by image ID - need to share Docker socket
+        dockerCmd = [
+          'docker run --rm',
+          '-v /var/run/docker.sock:/var/run/docker.sock',
+          'aquasec/trivy:latest',
+          'image',
+          '--format json',
+          '--timeout 5m',
+          target.imageId
+        ].join(' ');
       } else {
         throw new Error('Either imageId or tarballPath must be provided');
       }
 
-      const { stdout, stderr } = await execAsync(command, {
-        timeout: TrivyScanner.TIMEOUT,
-        maxBuffer: 10 * 1024 * 1024 // 10MB buffer for large outputs
-      });
+      const { stdout, stderr } = await this.runDockerCommand(dockerCmd);
 
-      if (stderr && !stderr.includes('WARN')) {
+      if (stderr && !stderr.includes('INFO') && !stderr.includes('WARN')) {
         console.warn('Trivy stderr:', stderr);
       }
 
-      const result = JSON.parse(stdout);
-      const trivyResult = TrivyResultSchema.parse(result);
+      const trivyResult = JSON.parse(stdout) as TrivyResult;
       const duration = Date.now() - startTime;
 
       return this.convertTrivyResult(trivyResult, duration);
@@ -103,32 +130,40 @@ export class TrivyScanner extends VulnerabilityScanner {
     const startTime = Date.now();
 
     try {
-      let command: string;
+      let volumeName: string;
 
       if (target.repoUrl) {
-        // Scan remote repository
-        command = `trivy repo --format json --timeout 5m "${target.repoUrl}"`;
+        // Clone repository to sandbox first
+        const cloneResult = await this.sandboxProvider.cloneRepository(target.repoUrl, '/tmp/repo');
+        if (!cloneResult.success) {
+          throw new Error(`Failed to clone repository: ${cloneResult.error}`);
+        }
+        volumeName = (this.sandboxProvider as any)._currentVolume;
       } else {
-        // Scan local filesystem
-        command = `trivy fs --format json --timeout 5m "${target.path}"`;
+        // Assume repository is already mounted in sandbox volume
+        volumeName = (this.sandboxProvider as any)._currentVolume;
       }
 
-      const { stdout, stderr } = await execAsync(command, {
-        timeout: TrivyScanner.TIMEOUT,
-        maxBuffer: 10 * 1024 * 1024
-      });
+      if (!volumeName) {
+        throw new Error('No sandbox volume available for Trivy scan');
+      }
 
-      if (stderr && !stderr.includes('WARN')) {
+      // Run Trivy in container with mounted volume
+      const { stdout, stderr } = await this.runTrivyInSandbox(volumeName, 'fs', '/src');
+
+      if (stderr && !stderr.includes('INFO') && !stderr.includes('WARN')) {
         console.warn('Trivy stderr:', stderr);
       }
 
-      const result = JSON.parse(stdout);
-      const trivyResult = TrivyResultSchema.parse(result);
+      const trivyResult = JSON.parse(stdout) as TrivyResult;
       const duration = Date.now() - startTime;
 
       return this.convertTrivyResult(trivyResult, duration);
     } catch (error) {
       const duration = Date.now() - startTime;
+      console.error('🚨 TRIVY SCANNER FAILURE:');
+      console.error('   Error:', error instanceof Error ? error.message : String(error));
+      console.error('   Stack:', error instanceof Error ? error.stack : 'No stack trace');
       return this.createErrorResult(
         `Repository scan failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
         duration
@@ -154,7 +189,7 @@ export class TrivyScanner extends VulnerabilityScanner {
 
   async healthCheck(): Promise<boolean> {
     try {
-      const { stdout } = await execAsync('trivy version', { timeout: 10000 });
+      const { stdout } = await this.runTrivyInSandbox('', 'version', '');
       return stdout.includes('Version:');
     } catch (error) {
       console.warn('Trivy health check failed:', error);
@@ -164,12 +199,72 @@ export class TrivyScanner extends VulnerabilityScanner {
 
   async getVersion(): Promise<string> {
     try {
-      const { stdout } = await execAsync('trivy version', { timeout: 10000 });
+      const { stdout } = await this.runTrivyInSandbox('', 'version', '');
       const match = stdout.match(/Version:\s*([^\n\r]+)/);
-      return match ? match[1].trim() : 'Unknown';
+      return match ? match[1].trim() : 'aquasec/trivy container';
     } catch (error) {
-      return 'Unknown';
+      return 'aquasec/trivy container';
     }
+  }
+
+  private async runTrivyInSandbox(volumeName: string, command: string, target: string): Promise<{ stdout: string; stderr: string }> {
+    const { exec } = await import('child_process');
+    const { promisify } = await import('util');
+    const execAsync = promisify(exec);
+
+    let dockerCmd: string;
+
+    if (command === 'version') {
+      // Version check doesn't need volumes
+      dockerCmd = 'docker run --rm aquasec/trivy:latest version';
+    } else {
+      // Regular scans need volume mounting - enable misconfig scanner for IaC detection
+      dockerCmd = [
+        'docker run --rm',
+        `-v ${volumeName}:/src`,
+        'aquasec/trivy:latest',
+        command,
+        '--scanners', 'vuln,secret,misconfig',
+        '--format json',
+        '--timeout 5m',
+        target
+      ].join(' ');
+    }
+
+    console.log('🔍 Executing Trivy command:', dockerCmd);
+
+
+    try {
+      const { stdout, stderr } = await execAsync(dockerCmd, {
+        timeout: TrivyScanner.TIMEOUT,
+        maxBuffer: 10 * 1024 * 1024
+      });
+
+      console.log('✅ Trivy command completed successfully');
+      if (stderr) {
+        console.log('Trivy stderr:', stderr);
+      }
+
+      return { stdout, stderr };
+    } catch (error) {
+      console.error('❌ Trivy Docker command failed:');
+      console.error('   Command:', dockerCmd);
+      console.error('   Error:', error);
+      throw error;
+    }
+  }
+
+  private async runDockerCommand(dockerCmd: string): Promise<{ stdout: string; stderr: string }> {
+    const { exec } = await import('child_process');
+    const { promisify } = await import('util');
+    const execAsync = promisify(exec);
+
+    const { stdout, stderr } = await execAsync(dockerCmd, {
+      timeout: TrivyScanner.TIMEOUT,
+      maxBuffer: 10 * 1024 * 1024
+    });
+
+    return { stdout, stderr };
   }
 
   private convertTrivyResult(trivyResult: TrivyResult, duration: number): ScanResult {
@@ -184,50 +279,94 @@ export class TrivyScanner extends VulnerabilityScanner {
 
     const packageCount = new Set<string>();
     let vulnerablePackageCount = 0;
+    let hasAnyFindings = false;
 
-    for (const target of trivyResult.Results) {
-      if (!target.Vulnerabilities || target.Vulnerabilities.length === 0) {
-        continue;
-      }
-
-      const hasVulnerabilities = target.Vulnerabilities.length > 0;
-      if (hasVulnerabilities) {
+    for (const target of trivyResult.Results || []) {
+      // Process package vulnerabilities
+      if (target.Vulnerabilities && target.Vulnerabilities.length > 0) {
+        hasAnyFindings = true;
         vulnerablePackageCount++;
+
+        for (const vuln of target.Vulnerabilities) {
+          packageCount.add(`${vuln.PkgName}@${vuln.InstalledVersion}`);
+
+          const severity = this.mapTrivySeverity(vuln.Severity);
+          const cvssScore = this.extractCVSSScore(vuln);
+          const ecosystem = this.detectEcosystem(target.Target, vuln.PkgPath);
+
+          const vulnerability: Vulnerability = {
+            id: vuln.VulnerabilityID,
+            title: vuln.Title || vuln.VulnerabilityID,
+            description: vuln.Description || `${vuln.VulnerabilityID} in ${vuln.PkgName}`,
+            severity,
+            cvssScore,
+            cveIds: vuln.VulnerabilityID.startsWith('CVE-') ? [vuln.VulnerabilityID] : [],
+            packageName: vuln.PkgName,
+            packageVersion: vuln.InstalledVersion,
+            ecosystem,
+            fixedVersion: vuln.FixedVersion,
+            references: vuln.References,
+            publishedDate: vuln.PublishedDate,
+            modifiedDate: vuln.LastModifiedDate,
+            source: 'trivy'
+          };
+
+          vulnerabilities.push(vulnerability);
+          severityBreakdown[severity]++;
+        }
       }
 
-      for (const vuln of target.Vulnerabilities) {
-        packageCount.add(`${vuln.PkgName}@${vuln.InstalledVersion}`);
+      // Process misconfigurations (IaC vulnerabilities)
+      if (target.Misconfigurations && target.Misconfigurations.length > 0) {
+        hasAnyFindings = true;
 
-        const severity = this.mapTrivySeverity(vuln.Severity);
-        const cvssScore = this.extractCVSSScore(vuln);
-        const ecosystem = this.detectEcosystem(target.Target, vuln.PkgPath);
+        for (const misconfig of target.Misconfigurations) {
+          const severity = this.mapTrivySeverity(misconfig.Severity);
 
-        const vulnerability: Vulnerability = {
-          id: vuln.VulnerabilityID,
-          title: vuln.Title || vuln.VulnerabilityID,
-          description: vuln.Description || `${vuln.VulnerabilityID} in ${vuln.PkgName}`,
-          severity,
-          cvssScore,
-          cveIds: vuln.VulnerabilityID.startsWith('CVE-') ? [vuln.VulnerabilityID] : [],
-          packageName: vuln.PkgName,
-          packageVersion: vuln.InstalledVersion,
-          ecosystem,
-          fixedVersion: vuln.FixedVersion,
-          references: vuln.References,
-          publishedDate: vuln.PublishedDate,
-          modifiedDate: vuln.LastModifiedDate,
-          source: 'trivy'
-        };
+          const vulnerability: Vulnerability = {
+            id: misconfig.ID,
+            title: misconfig.Title || misconfig.ID,
+            description: misconfig.Description || `Configuration issue: ${misconfig.ID}`,
+            severity,
+            packageName: target.Target,
+            packageVersion: 'config',
+            ecosystem: 'infrastructure',
+            source: 'trivy'
+          };
 
-        vulnerabilities.push(vulnerability);
-        severityBreakdown[severity]++;
+          vulnerabilities.push(vulnerability);
+          severityBreakdown[severity]++;
+        }
+      }
+
+      // Process secrets
+      if (target.Secrets && target.Secrets.length > 0) {
+        hasAnyFindings = true;
+
+        for (const secret of target.Secrets) {
+          const severity = this.mapTrivySeverity(secret.Severity);
+
+          const vulnerability: Vulnerability = {
+            id: secret.RuleID,
+            title: secret.Title,
+            description: `Secret detected: ${secret.Category} - ${secret.Match}`,
+            severity,
+            packageName: target.Target,
+            packageVersion: 'secret',
+            ecosystem: 'secret',
+            source: 'trivy'
+          };
+
+          vulnerabilities.push(vulnerability);
+          severityBreakdown[severity]++;
+        }
       }
     }
 
     return {
       scanner: 'trivy',
       totalPackagesScanned: packageCount.size,
-      vulnerablePackages: vulnerablePackageCount,
+      vulnerablePackages: hasAnyFindings ? vulnerablePackageCount : 0,
       totalVulnerabilities: vulnerabilities.length,
       severityBreakdown,
       vulnerabilities,
@@ -258,7 +397,7 @@ export class TrivyScanner extends VulnerabilityScanner {
     let highestScore: number | undefined;
 
     for (const [, cvssData] of Object.entries(vuln.CVSS)) {
-      const score = cvssData.V3Score ?? cvssData.V2Score;
+      const score = (cvssData as any).V3Score ?? (cvssData as any).V2Score;
       if (score !== undefined && (highestScore === undefined || score > highestScore)) {
         highestScore = score;
       }

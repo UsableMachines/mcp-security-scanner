@@ -12,6 +12,7 @@ import { OSVService, type VulnerabilityReport } from '../services/osv-service';
 import { ScannerOrchestrator } from '../services/scanner-orchestrator';
 import { ScanTarget, CombinedScanResult } from '../services/vulnerability-scanner';
 import { SandboxProvider, type GitCloneResult, type OSVScanResult } from '../sandbox/sandbox-provider';
+import { configManager } from '../config';
 
 const execAsync = promisify(exec);
 
@@ -87,7 +88,9 @@ export class DependencyAnalyzer {
     }
 
     // Step 2: Run dual-scanner system on repository
-    console.log(`🔍 Analyzing repository with dual-scanner system: ${repoUrl}`);
+    if (configManager.isDebugMode()) {
+      console.log(`🔍 Analyzing repository with dual-scanner system: ${repoUrl}`);
+    }
 
     const scanTarget: ScanTarget = {
       type: 'repository',
@@ -100,7 +103,7 @@ export class DependencyAnalyzer {
 
     try {
       // Use dual-scanner system
-      combinedScanResult = await this.scannerOrchestrator.scan(scanTarget);
+      combinedScanResult = await this.scannerOrchestrator.scan(scanTarget, sandboxProvider);
 
       // Extract project info from successful scan results
       projectInfo = await this.extractProjectInfoFromScanResults(combinedScanResult, '/tmp/repo', sandboxProvider);

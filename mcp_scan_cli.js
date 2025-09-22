@@ -6,6 +6,7 @@
  */
 
 const { MCPSecurityScanner } = require('./dist/index.js');
+const { configManager } = require('./dist/config/index.js');
 
 async function main() {
   const args = process.argv.slice(2);
@@ -124,14 +125,18 @@ Examples:
   console.log(`🔒 MCP Security Scanner v0.1.0`);
 
   if (repoUrl) {
-    console.log(`Repository: ${repoUrl}`);
-    console.log(`Analysis: Static (dependency + source code)`);
+    if (configManager.isDebugMode()) {
+      console.log(`Repository: ${repoUrl}`);
+      console.log(`Analysis: Static (dependency + source code)`);
+    }
     options.sourceCodeUrl = repoUrl;
     options.mode = 'static';
     // Use dummy path for static-only mode
     mcpServerPath = 'static-analysis-only';
   } else if (mcpJsonConfig) {
-    console.log(`Analysis: Black Box (MCP JSON configuration)`);
+    if (configManager.isDebugMode()) {
+      console.log(`Analysis: Black Box (MCP JSON configuration)`);
+    }
     options.mode = 'json';
 
     // Handle JSON input
@@ -184,11 +189,8 @@ Examples:
 
   let scanner;
   try {
-    console.log('Initializing scanner...');
     scanner = new MCPSecurityScanner();
     await scanner.initialize();
-
-    console.log('Starting security analysis...\n');
     const startTime = Date.now();
 
     const result = await scanner.scan(mcpServerPath, options);

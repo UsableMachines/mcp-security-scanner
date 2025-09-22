@@ -3,6 +3,7 @@
  */
 import { generateText } from 'ai';
 import { createAnthropic } from '@ai-sdk/anthropic';
+import { configManager } from '../config';
 
 export interface AIMessage {
   role: 'system' | 'user' | 'assistant';
@@ -305,7 +306,9 @@ export class AIRouter {
       throw new Error('No AI providers available');
     }
 
-    console.log(`AI Router initialized with provider: ${this.activeProvider.name}`);
+    if (configManager.isDebugMode()) {
+      console.log(`AI Router initialized with provider: ${this.activeProvider.name}`);
+    }
   }
 
   async createCompletion(

@@ -95,7 +95,9 @@ export class MCPSecurityScanner {
       this.osvService
     );
 
-    console.log('MCP Security Scanner initialized');
+    if (configManager.isDebugMode()) {
+      console.log('MCP Security Scanner initialized');
+    }
   }
 
   async initialize(): Promise<void> {
@@ -106,8 +108,10 @@ export class MCPSecurityScanner {
 
     this.isInitialized = true;
 
-    configManager.logConfig();
-    console.log(`Scanner ready - Sandbox: ${this.sandboxManager.getCurrentProvider()}, AI: ${this.aiAnalyzer.getCurrentProvider()}`);
+    if (configManager.isDebugMode()) {
+      configManager.logConfig();
+      console.log(`Scanner ready - Sandbox: ${this.sandboxManager.getCurrentProvider()}, AI: ${this.aiAnalyzer.getCurrentProvider()}`);
+    }
   }
 
   async scan(mcpServerPath: string, options: ScanOptions = {}): Promise<ComprehensiveScanResult> {
@@ -122,7 +126,9 @@ export class MCPSecurityScanner {
 
     // Static Analysis with Parallel Execution (when source code is available)
     if ((scanMode === 'static' || scanMode === 'hybrid') && options.sourceCodeUrl) {
-      console.log('🚀 Performing parallel static analysis...');
+      if (configManager.isDebugMode()) {
+        console.log('Performing parallel static analysis...');
+      }
 
       try {
         parallelResults = await this.parallelOrchestrator.executeParallelStaticAnalysis(

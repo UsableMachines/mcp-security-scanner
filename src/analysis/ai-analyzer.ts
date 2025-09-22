@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { AIRouter, AIMessage } from '../services/ai-router';
 import type { SandboxResult } from '../sandbox/sandbox-provider';
 import { MCPPromptSecurityAnalyzer, type PromptSecurityAnalysisResult, type MCPServer } from './mcp-prompt-security-analyzer';
+import { configManager } from '../config';
 
 // Security analysis schemas
 const SecurityRiskSchema = z.object({
@@ -93,7 +94,9 @@ export class AIAnalyzer {
     await this.aiRouter.initialize(providerConfigs);
     this.isInitialized = true;
     
-    console.log(`AI Analyzer initialized with provider: ${this.aiRouter.getCurrentProvider()}`);
+    if (configManager.isDebugMode()) {
+      console.log(`AI Analyzer initialized with provider: ${this.aiRouter.getCurrentProvider()}`);
+    }
   }
 
   async analyzeMCPSecurity(

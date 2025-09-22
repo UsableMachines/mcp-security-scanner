@@ -7,6 +7,7 @@ import { VulnerabilityScanner, ScanResult, CombinedScanResult, ScanTarget, Vulne
 import { OSVScanner } from './osv-scanner';
 import { TrivyScanner } from './trivy-scanner';
 import { vulnerabilityScannerConfig } from '../config';
+import { SandboxProvider } from '../sandbox/sandbox-provider';
 
 interface ScannerConfig {
   enableOsv: boolean;
@@ -16,19 +17,22 @@ interface ScannerConfig {
 
 export class ScannerOrchestrator {
   private osvScanner: OSVScanner;
-  private trivyScanner: TrivyScanner;
+  private trivyScanner?: TrivyScanner;
   private config: ScannerConfig;
 
   constructor() {
     this.osvScanner = new OSVScanner();
-    this.trivyScanner = new TrivyScanner();
     this.config = vulnerabilityScannerConfig();
   }
 
   /**
    * Scan target with configured scanners
    */
-  async scan(target: ScanTarget): Promise<CombinedScanResult> {
+  async scan(target: ScanTarget, sandboxProvider?: SandboxProvider): Promise<CombinedScanResult> {
+    // Create TrivyScanner with sandbox provider if needed
+    if (!this.trivyScanner && sandboxProvider) {
+      this.trivyScanner = new TrivyScanner(sandboxProvider);
+    }
     const startTime = Date.now();
     const scanPromises: Array<Promise<{ scanner: string; result: ScanResult }>> = [];
 
@@ -47,7 +51,7 @@ export class ScannerOrchestrator {
       );
     }
 
-    if (scannersToRun.includes('trivy')) {
+    if (scannersToRun.includes('trivy') && this.trivyScanner) {
       scanPromises.push(
         this.runScannerSafely(this.trivyScanner, target).then(result => ({
           scanner: 'trivy',
@@ -73,7 +77,7 @@ export class ScannerOrchestrator {
   async healthCheck(): Promise<{ osv: boolean; trivy: boolean }> {
     const checks = await Promise.allSettled([
       this.config.enableOsv ? this.osvScanner.healthCheck() : Promise.resolve(false),
-      this.config.enableTrivy ? this.trivyScanner.healthCheck() : Promise.resolve(false)
+      this.config.enableTrivy && this.trivyScanner ? this.trivyScanner.healthCheck() : Promise.resolve(false)
     ]);
 
     return {
@@ -96,7 +100,7 @@ export class ScannerOrchestrator {
       }
     }
 
-    if (this.config.enableTrivy) {
+    if (this.config.enableTrivy && this.trivyScanner) {
       try {
         versions.trivy = await this.trivyScanner.getVersion();
       } catch (error) {

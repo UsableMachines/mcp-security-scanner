@@ -1,33 +1,32 @@
 yarn node mcp_scan_cli.js --repo https://github.com/brave/brave-search-mcp-server
-[dotenv@17.2.2] injecting env (8) from .env -- tip: 🔐 encrypt with Dotenvx: https://dotenvx.com
+/// [dotenv@17.2.2] injecting env (8) from .env -- tip: 🔐 encrypt with Dotenvx: https://dotenvx.com
 🔒 MCP Security Scanner v0.1.0
-Repository: https://github.com/brave/brave-search-mcp-server
-Analysis: Static (dependency + source code)
+/// Repository: https://github.com/brave/brave-search-mcp-server
+/// Analysis: Static (dependency + source code)
 =====================================
 
-Initializing scanner...
-MCP Security Scanner initialized
-Initialized sandbox provider: docker
-AI Router initialized with provider: anthropic
-AI Analyzer initialized with provider: anthropic
-MCP Security Scanner Configuration:
-- AI Provider: anthropic
-- Sandbox Provider: auto
-- Kindo Model: claude-sonnet-4-20250514
-- Scanner Timeout: 300000ms
-- Max Code Size: 50000 bytes
-- Network Analysis: enabled
-- Log Level: info
-- Kindo API: configured
-- Daytona API: not configured
-Scanner ready - Sandbox: docker, AI: anthropic
-Starting security analysis...
+~~Initializing scanner...~~ (just delete this line, scanner ibviously already running)
+///MCP Security Scanner initialized
+///Initialized sandbox provider: docker
+///AI Router initialized with provider: anthropic
+///AI Analyzer initialized with provider: anthropic
+///MCP Security Scanner Configuration:
+///- AI Provider: anthropic
+///- Sandbox Provider: auto
+///- Kindo Model: claude-sonnet-4-20250514
+///- Scanner Timeout: 300000ms
+///- Max Code Size: 50000 bytes
+///- Network Analysis: enabled
+///- Log Level: info
+///- Kindo API: configured
+///- Daytona API: not configured
+///Scanner ready - Sandbox: docker, AI: anthropic
+~~Starting security analysis...~~ (delete, this is pointless)
 
 Starting STATIC analysis of MCP server: static-analysis-only
-🚀 Performing parallel static analysis...
-🚀 Starting parallel static analysis...
+Performing parallel static analysis...
+Starting parallel static analysis... 
 📦 Cloning repository for parallel analysis...
-🔍 Analyzing repository with dual-scanner system: https://github.com/brave/brave-search-mcp-server
 Running vulnerability scan with: trivy
 Trivy stderr: 2025-09-22T13:05:37-04:00	INFO	[vuln] Vulnerability scanning is enabled
 2025-09-22T13:05:37-04:00	INFO	[secret] Secret scanning is enabled

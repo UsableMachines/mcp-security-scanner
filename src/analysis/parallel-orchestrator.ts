@@ -92,7 +92,9 @@ export class ParallelAnalysisOrchestrator {
     } = {}
   ): Promise<ParallelAnalysisResult> {
     const startTime = Date.now();
-    console.log('🚀 Starting parallel static analysis...');
+    if (configManager.isDebugMode()) {
+      console.log('Starting parallel static analysis...');
+    }
 
     // First, ensure repository is cloned and volume is ready
     const sandboxProvider = await this.sandboxManager.getProvider();
