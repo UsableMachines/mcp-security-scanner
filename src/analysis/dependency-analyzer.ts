@@ -108,7 +108,7 @@ export class DependencyAnalyzer {
       // Extract project info from successful scan results
       projectInfo = await this.extractProjectInfoFromScanResults(combinedScanResult, '/tmp/repo', sandboxProvider);
 
-      console.log(`📊 Dual-scanner repository analysis complete - Found ${combinedScanResult.totalUniqueVulnerabilities} vulnerabilities`);
+      console.log(`Repository analysis complete - Found ${combinedScanResult.totalUniqueVulnerabilities} vulnerabilities`);
 
     } catch (error) {
       // Fallback to OSV scan in sandbox if dual-scanner fails

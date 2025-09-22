@@ -1,6 +1,6 @@
 # MCP Security Scanner
 
-A TypeScript-based security scanner for MCP (Model Context Protocol) servers. Performs comprehensive security analysis through static code analysis, dynamic behavioral monitoring, and AI-powered vulnerability detection.
+A TypeScript-based security scanner for MCP (Model Context Protocol) servers. Performs comprehensive security analysis through static code analysis, dynamic behavioral monitoring, containerized vulnerability scanning with Trivy, and AI-powered threat detection.
 
 ## Quick Start
 
@@ -63,24 +63,58 @@ yarn test              # Run Jest tests
 
 ### Configuration
 
-Create `.env` file with required API keys:
+Create `.env` file with required configuration:
 ```bash
-# Anthropic API (required for AI analysis)
-ANTHROPIC_API_KEY=sk-ant-api03-...
+# AI Provider Selection (default: anthropic)
+AI_PROVIDER=anthropic               # Options: anthropic|external-kindo|internal-kindo
 
-# Kindo API (optional, for Kindo provider)
-KINDO_API_KEY=your-kindo-key
+# API Keys (choose based on AI_PROVIDER)
+ANTHROPIC_API_KEY=sk-ant-api03-...  # Required for AI_PROVIDER=anthropic (default)
+KINDO_API_KEY=your-kindo-key        # Required for external-kindo or internal-kindo
+
+# Kindo Configuration (when using Kindo providers)
 KINDO_LLM_BASE_URL=https://llm.kindo.ai/v1
 KINDO_MODEL=claude-sonnet-4-20250514
 
 # Vulnerability Scanner Configuration
-VULNERABILITY_SCANNER_OSV=true       # Enable OSV.dev vulnerability scanning
-VULNERABILITY_SCANNER_TRIVY=true     # Enable Trivy vulnerability scanning
-VULNERABILITY_SCANNER_MODE=both      # Scanning mode: osv, trivy, or both
+VULNERABILITY_SCANNER_OSV=true      # Enable OSV.dev vulnerability scanning
+VULNERABILITY_SCANNER_TRIVY=true    # Enable Trivy vulnerability scanning
+VULNERABILITY_SCANNER_MODE=both     # Scanning mode: osv, trivy, or both
 
-# Daytona (optional, for production sandbox)
+# Sandbox Configuration (optional)
+PREFERRED_SANDBOX=auto              # Options: auto|docker|daytona
 DAYTONA_API_ENDPOINT=https://your-instance.com/api
 DAYTONA_API_KEY=your-daytona-key
+```
+
+## AI Provider Configuration
+
+The scanner supports multiple AI providers for intelligent security analysis:
+
+### Provider Options
+- **anthropic** (default): Direct Anthropic Claude API integration
+  - Requires: `ANTHROPIC_API_KEY`
+  - Best for: Development and standalone deployments
+  - Models: Claude Sonnet 4 with tool calling capabilities
+
+- **external-kindo**: External Kindo API via llm.kindo.ai
+  - Requires: `KINDO_API_KEY`, `KINDO_LLM_BASE_URL`
+  - Best for: Kindo platform users with external access
+  - Models: Configurable via `KINDO_MODEL`
+
+- **internal-kindo**: Internal Kindo platform integration
+  - Requires: `KINDO_API_KEY`
+  - Best for: When deployed as a Kindo platform feature
+  - Models: Platform-managed model selection
+
+### Configuration
+```bash
+# Choose your AI provider
+AI_PROVIDER=anthropic  # or external-kindo, internal-kindo
+
+# Set corresponding API key
+ANTHROPIC_API_KEY=your_key    # For anthropic
+KINDO_API_KEY=your_key        # For kindo providers
 ```
 
 ## Vulnerability Scanner Configuration
@@ -88,9 +122,12 @@ DAYTONA_API_KEY=your-daytona-key
 The scanner supports dual vulnerability detection engines that can be configured independently:
 
 ### Scanner Options
-- **OSV Scanner**: Uses OSV.dev database for comprehensive vulnerability detection
-- **Trivy**: Industry-standard scanner with extensive CVE database coverage
-- **Dual Mode**: Run both scanners for maximum coverage with result comparison
+- **OSV Scanner**: Uses OSV.dev database for dependency vulnerability detection in package ecosystems
+- **Trivy**: Containerized scanner with comprehensive detection for:
+  - **Package vulnerabilities** (CVE database)
+  - **Infrastructure misconfigurations** (Terraform, Kubernetes, Docker)
+  - **Secret exposure** (API keys, credentials, tokens)
+- **Dual Mode**: Run both scanners for maximum coverage with result deduplication
 
 ### Configuration
 ```bash
@@ -99,6 +136,28 @@ VULNERABILITY_SCANNER_OSV=true       # Enable OSV.dev scanning
 VULNERABILITY_SCANNER_TRIVY=true     # Enable Trivy scanning
 VULNERABILITY_SCANNER_MODE=both      # Options: osv, trivy, both
 ```
+
+### Trivy Scanner Capabilities
+
+The integrated Trivy scanner provides comprehensive security analysis:
+
+#### Containerized Architecture
+- **Full Isolation**: Uses `aquasec/trivy:latest` Docker container
+- **No Host Dependencies**: No local Trivy CLI installation required
+- **Sandbox Integration**: Secure volume mounting for repository analysis
+- **Auto-updates**: Latest vulnerability databases and security rules
+
+#### Multi-Domain Detection
+- **Package Vulnerabilities**: CVE detection across all package ecosystems
+- **Infrastructure as Code**: Terraform, Kubernetes, Docker misconfigurations
+- **Secret Scanning**: API keys, credentials, tokens in source code
+- **Language Agnostic**: No assumptions about project structure or package managers
+
+#### Output Processing
+- **Structured Results**: JSON parsing with comprehensive vulnerability metadata
+- **Severity Mapping**: CVSS scoring and severity classification
+- **Deduplication**: Intelligent merging with OSV scanner results
+- **Error Handling**: Graceful failure handling with detailed logging
 
 ### Scanner Comparison
 When both scanners are enabled, you'll see:
@@ -109,9 +168,11 @@ When both scanners are enabled, you'll see:
 
 ## Key Features
 
-### 🔍 **Dual-Mode Analysis**
-- **Static Analysis**: Configurable vulnerability scanning (OSV.dev + Trivy) + AI-powered source code review for Python/TypeScript projects
+### 🔍 **Intelligent Analysis Pipeline**
+- **MCP Detection**: Automatically detects MCP servers vs regular codebases using regex patterns
+- **Static Analysis**: Multi-scanner vulnerability detection (OSV.dev + containerized Trivy) + AI-powered source code review
 - **Dynamic Analysis**: Sandboxed execution monitoring for Docker containers and remote MCP servers
+- **Early Exit**: Skips expensive AI analysis for non-MCP repositories
 
 ### 🔐 **OAuth 2.1 DCR Support** *(Latest - September 2025)*
 - Full RFC 7591 Dynamic Client Registration with PKCE security
@@ -124,11 +185,12 @@ When both scanners are enabled, you'll see:
 - Detects 18+ MCP-specific vulnerability patterns (tool poisoning, data exfiltration, auth bypass, etc.)
 - Contextual analysis beyond traditional dependency scanning
 
-### 🐳 **Container Security**
-- Dual-scanner vulnerability detection (OSV.dev + Trivy) with configurable scanner selection
-- Docker image CVE scanning with comprehensive vulnerability databases
-- Privileged container detection, dangerous volume mounts
-- Real vulnerability analysis with severity breakdown and scanner comparison
+### 🐳 **Containerized Security Scanning**
+- **Trivy Integration**: Fully containerized `aquasec/trivy:latest` for sandbox isolation
+- **Multi-Domain Detection**: Package vulnerabilities, infrastructure misconfigurations, secret exposure
+- **Language Agnostic**: No hardcoded assumptions about package managers or project structure
+- **Docker Volume Isolation**: Secure scanning without host CLI dependencies
+- **Real-time Results**: Comprehensive vulnerability databases with severity breakdown
 
 ### 🔒 **Security-by-Default**
 - `--allow-mcp-remote` flag for dangerous proxy servers
@@ -140,12 +202,44 @@ When both scanners are enabled, you'll see:
 ### Core Components
 - **AI Router**: Multi-provider AI interface (Anthropic, Kindo) with tool calling support
 - **Sandbox Manager**: Pluggable isolation (Docker, Daytona microVMs) with auto-detection
-- **MCP Analysis Pipeline**: Static patterns + dynamic behavior + AI assessment
+- **Containerized Scanners**:
+  - OSV Scanner: `ghcr.io/google/osv-scanner:latest` for dependency analysis
+  - Trivy Scanner: `aquasec/trivy:latest` for vulnerabilities, misconfigurations, and secrets
+- **MCP Detection Engine**: Regex-based pattern matching for MCP server identification
+- **Analysis Pipeline**: Intelligent routing based on MCP detection results
 
 ### Analysis Flow
 ```
-Repository/Config → Sandbox Execution → Behavior Monitoring → AI Analysis → Security Report
+Repository Clone → MCP Detection → Early Exit (Non-MCP) ↓
+                                                      ↓
+Containerized Vulnerability Scanning (Trivy + OSV) ↓
+                                                      ↓
+AI-Powered Security Analysis (MCP-specific) → Security Report
 ```
+
+## MCP Detection Engine
+
+The scanner automatically identifies MCP servers using pattern-based detection:
+
+### Detection Patterns
+The engine searches for MCP-specific code patterns across multiple languages:
+- `server\.setRequestHandler.*tools/list` - MCP tool registration
+- `tools\.set\(` - Tool definition patterns
+- `name:.*description:` - Tool schema patterns
+- `inputSchema:` - Tool input validation
+- `@server\.list_tools` - Python decorator patterns
+- `mcp.*server` - General MCP server imports
+- `Model Context Protocol` - Protocol references
+
+### Supported Languages
+- **JavaScript/TypeScript**: `.js`, `.ts` files
+- **Python**: `.py` files
+- **Language Agnostic**: No dependency on specific package managers
+
+### Smart Analysis Routing
+- ✅ **MCP Server Detected**: Full security analysis with AI-powered MCP-specific vulnerability detection
+- ❌ **Non-MCP Repository**: Early exit after vulnerability scanning, skips expensive AI analysis
+- 🔍 **Example Output**: `"No MCP server detected - stopping analysis"`
 
 ## MCP Security Vulnerabilities Detected
 
@@ -161,11 +255,15 @@ The scanner identifies 18+ MCP-specific security issues:
 ### Project Structure
 ```
 src/
-├── analysis/           # Analysis engines (AI, dependency, MCP JSON, behavioral)
+├── analysis/           # Analysis engines (AI, dependency, MCP JSON, behavioral, parallel orchestration)
 ├── sandbox/           # Sandboxing infrastructure (Docker, Daytona providers)
-├── services/          # Core services (AI router, OSV integration)
-├── config/           # Configuration management
-└── index.ts          # Main scanner orchestration
+├── services/          # Containerized scanners (OSV, Trivy, AI router)
+│   ├── osv-scanner.ts      # OSV.dev containerized vulnerability scanning
+│   ├── trivy-scanner.ts    # Trivy containerized multi-domain scanning
+│   ├── scanner-orchestrator.ts # Dual-scanner coordination and result merging
+│   └── vulnerability-scanner.ts # Common scanner interface
+├── config/           # Environment-based configuration management
+└── index.ts          # Main scanner orchestration with MCP detection
 ```
 
 ### Code Standards

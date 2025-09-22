@@ -151,10 +151,6 @@ export class TrivyScanner extends VulnerabilityScanner {
       // Run Trivy in container with mounted volume
       const { stdout, stderr } = await this.runTrivyInSandbox(volumeName, 'fs', '/src');
 
-      if (stderr && !stderr.includes('INFO') && !stderr.includes('WARN')) {
-        console.warn('Trivy stderr:', stderr);
-      }
-
       const trivyResult = JSON.parse(stdout) as TrivyResult;
       const duration = Date.now() - startTime;
 
@@ -241,9 +237,6 @@ export class TrivyScanner extends VulnerabilityScanner {
       });
 
       console.log('✅ Trivy command completed successfully');
-      if (stderr) {
-        console.log('Trivy stderr:', stderr);
-      }
 
       return { stdout, stderr };
     } catch (error) {

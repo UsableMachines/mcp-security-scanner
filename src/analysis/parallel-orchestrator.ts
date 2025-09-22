@@ -123,6 +123,28 @@ export class ParallelAnalysisOrchestrator {
       throw new Error('No Docker volume available after repository clone');
     }
 
+    // Check if this is an MCP server before running expensive AI analysis
+    const mcpConfig = await this.discoverMCPConfiguration(volumeName);
+    if (!mcpConfig) {
+      console.log('❌ No MCP server configuration found - this is not an MCP server');
+      console.log('🛑 Stopping analysis - No MCP server detected');
+
+      // Return minimal result indicating non-MCP repository
+      return {
+        dependencyAnalysis: undefined,
+        sourceCodeAnalysis: undefined,
+        mcpPromptSecurityAnalysis: undefined,
+        executionMetrics: {
+          totalDuration: 0,
+          parallelSavings: 0,
+          taskDurations: {},
+          concurrencyLevel: 0
+        }
+      };
+    }
+
+    console.log(`✅ Found MCP server configuration with ${mcpConfig.tools?.length || 0} tools - proceeding with analysis`);
+
     // Define parallel tasks
     const tasks: Promise<{ type: string; result: any; duration: number }>[] = [];
     const taskStartTimes: Record<string, number> = {};
@@ -130,7 +152,7 @@ export class ParallelAnalysisOrchestrator {
     // Task 1: Dependency Analysis (if not already done during clone)
     if (!options.skipDependencyAnalysis) {
       tasks.push(this.executeTask('dependency', async () => {
-        console.log('🔍 [Parallel] Running dual-scanner dependency analysis...');
+        console.log('🔍 [Parallel] Running dependency, vuln, secrets, and IaC analysis...');
         // The dependency analysis was already done during clone using dual-scanner system
         // This task is essentially a no-op since clone already includes dual-scanner analysis
         return null; // Will be populated from clone result
@@ -150,7 +172,6 @@ export class ParallelAnalysisOrchestrator {
     }));
 
     // Execute all tasks in parallel
-    console.log(`🔄 Executing ${tasks.length} analysis tasks in parallel...`);
     const parallelStart = Date.now();
 
     const results = await Promise.allSettled(tasks);
@@ -1216,17 +1237,8 @@ The repository is available in a Docker volume "${volumeName}" mounted at /src. 
     const execAsync = promisify(exec);
 
     try {
-      let projectName = 'unknown-mcp-server';
+      const projectName = 'unknown-mcp-server';
       const tools: Array<{ name: string; description?: string; inputSchema?: any }> = [];
-
-      // Get project name
-      try {
-        const { stdout: packageJson } = await execAsync(`docker run --rm -v ${volumeName}:/src alpine:latest cat /src/package.json`);
-        const pkg = JSON.parse(packageJson);
-        projectName = pkg.name || 'unknown-mcp-server';
-      } catch {
-        // package.json not found or invalid
-      }
 
       // Search for MCP tool definitions
       const searchPatterns = [

