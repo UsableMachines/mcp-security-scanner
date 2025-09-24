@@ -303,3 +303,5 @@ When contributing to this security scanner:
 
 - Add URLhaus look up for web consent re-redirects: https://urlhaus.abuse.ch/api/
 - Manage web consent browser detection vs CLI print promnpting. This works as a standalone cli tool but won't work for production use case with a GUI
+- Add verbose output option for scan results when vulns are detected. Currently they are suppressed to save on output size
+- Evaluate AI response for MCP interrogation
