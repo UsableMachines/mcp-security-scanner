@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MCP Security Scanner</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            max-width: 800px;
+            width: 100%;
+            padding: 60px 40px;
+            text-align: center;
+        }
+
+        h1 {
+            color: #2d3748;
+            font-size: 2.5rem;
+            margin-bottom: 1rem;
+            font-weight: 700;
+        }
+
+        .subtitle {
+            color: #667eea;
+            font-size: 1.2rem;
+            margin-bottom: 2rem;
+            font-weight: 500;
+        }
+
+        .description {
+            color: #4a5568;
+            font-size: 1rem;
+            line-height: 1.6;
+            margin-bottom: 2rem;
+        }
+
+        .features {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin: 40px 0;
+        }
+
+        .feature-card {
+            background: #f7fafc;
+            padding: 20px;
+            border-radius: 8px;
+            border: 2px solid #e2e8f0;
+            transition: all 0.3s ease;
+        }
+
+        .feature-card:hover {
+            border-color: #667eea;
+            transform: translateY(-2px);
+        }
+
+        .feature-card h3 {
+            color: #2d3748;
+            font-size: 1.1rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .feature-card p {
+            color: #718096;
+            font-size: 0.9rem;
+        }
+
+        .status {
+            display: inline-block;
+            background: #48bb78;
+            color: white;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 0.9rem;
+            font-weight: 500;
+            margin-top: 20px;
+        }
+
+        footer {
+            margin-top: 40px;
+            color: #a0aec0;
+            font-size: 0.9rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>MCP Security Scanner</h1>
+        <p class="subtitle">Comprehensive Security Analysis for MCP Servers</p>
+
+        <p class="description">
+            Advanced security scanning tool for Model Context Protocol (MCP) servers,
+            providing both static code analysis and dynamic behavioral monitoring in sandboxed environments.
+        </p>
+
+        <div class="features">
+            <div class="feature-card">
+                <h3>Static Analysis</h3>
+                <p>Code pattern analysis and vulnerability detection</p>
+            </div>
+            <div class="feature-card">
+                <h3>Dynamic Analysis</h3>
+                <p>Runtime behavior monitoring in isolated sandboxes</p>
+            </div>
+            <div class="feature-card">
+                <h3>AI-Powered</h3>
+                <p>Intelligent risk assessment with evidence-based findings</p>
+            </div>
+            <div class="feature-card">
+                <h3>Pluggable System</h3>
+                <p>Docker and Daytona sandbox providers</p>
+            </div>
+        </div>
+
+        <span class="status">Frontend Under Development</span>
+
+        <footer>
+            <p>Powered by Kindo.ai</p>
+        </footer>
+    </div>
+</body>
+</html>
